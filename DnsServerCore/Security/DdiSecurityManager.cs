@@ -132,6 +132,12 @@ namespace DnsServerCore.Security
         public MispHealth MispStatus { get { lock (_sync) return !_policy.Misp.Enabled ? _mispHealth with { Status = "Disabled", Indicators = 0 } : _mispHealth with { Indicators = EnrichmentFor(_policy).Count(i => i.Expires > DateTime.UtcNow) }; } }
         public SignalHealth SignalStatus { get { lock (_sync) return _signalHealth; } }
         public SecurityEvent[] RecentEvents() { lock (_sync) return _recent.ToArray(); }
+        // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+        public Task<LlmAnalysis> TestModelConnectionAsync(LlmSettings settings, CancellationToken cancellationToken)
+            => _llm.TestConnectionAsync(settings, cancellationToken);
+
+        public LlmMetrics ModelMetrics(int minutes) => _llm.Telemetry.Snapshot(ReadPolicy().Llm ?? new LlmSettings(), minutes);
+
         public Task<LlmAnalysis> AnalyzeEventAsync(string eventId, CancellationToken cancellationToken)
         {
             SecurityEvent evidence = RecentEvents().SingleOrDefault(e => e.Id == eventId) ?? throw new ArgumentException("This event is no longer available for model analysis. Select a recent event.");

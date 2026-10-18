@@ -9,6 +9,10 @@ teQtanium connects to an independently operated model server through the widely 
 3. If the server requires authentication, set a `DDI_LLM_*_API_KEY` environment variable on the teQtanium service and enter its name under Credential reference. The policy stores only that reference, never the key. Configure credentials on each node that will request analysis. Configuring a reference does not set an environment variable.
 4. Enable event explanations and save. An administrator can choose View evidence > Explain event for a recent event. Model analysis is on demand; there is no automatic telemetry upload.
 
+Before saving, choose **Test connection**. It sends a fixed benign question through this node using the entered endpoint, model and credential reference, without event data or policy changes. A reply confirms that transport, authentication and a textual model response worked at that time; it does not enable event explanations. Cancel test stops waiting for the request; a provider may already have begun processing it.
+
+For a private HTTPS CA, provision a PEM CA bundle outside the configuration backup and set `DDI_LLM_CA_FILE` in the service environment on each requesting node. Restart the service during an approved release to load it. This optional trust bundle applies only to model connections and retains certificate hostname, expiry and chain validation. Without it, the platform trust store is used. Missing, unreadable or invalid bundles make model requests unavailable and do not prevent DNS/DHCP startup. Credentials remain referenced by `DDI_LLM_*_API_KEY`; neither keys nor CA file contents are returned by the connection check.
+
 By default, requests omit full query names, domains, client addresses, MAC addresses, DHCP client identifiers, hostnames, site names and raw threat-source evidence. They include selected detector features and scores, sample/coverage metadata, protocol outcome and whether DHCP attribution exists. Include registered domains is an explicit opt-in and still omits full query names. Requests go to the configured endpoint; Allow a network endpoint authorizes that destination, including a separate LAN model server.
 
 ## Operation
@@ -19,7 +23,25 @@ At most two analyses run concurrently per server. Requests are limited to 32 KiB
 
 Connection settings travel with security policy backup and synchronization; model credentials and model weights do not. The source and destination must be reviewed during a deployment migration. An explanation uses the current connection settings and a recent node-local event; archived-only events cannot yet be analyzed.
 
+## Dashboard telemetry
+
+Dashboard > Operations on this node shows model requests made by this process. The selected 15-minute or 60-minute window is separate from the existing DNS chart window/node selector. DHCP/IPAM/protection cards are current snapshots, not window totals. No cluster aggregation is performed.
+
+Token counts come only from the provider's `usage.prompt_tokens`, `usage.completion_tokens` and `usage.total_tokens`. All three must be nonnegative exact integers and total must equal input plus output. Missing usage, malformed/negative/overflow counts, and inconsistent totals are counted separately and do not become zero. Explicit reported zero is supported. Canceled or timed-out work may consume provider tokens that were never returned; no estimates, pricing, GPU-wide usage or savings are inferred.
+
+Requests are counted once in the connector. Outcome categories partition completed connector attempts into successful, failed, canceled, timed out, or busy (local capacity rejection or provider HTTP 429). Validation rejected before entering the connector is excluded. In-flight requests are shown separately, with capacity two. Successful-call p50/p95 latency uses monotonic elapsed time, includes connection setup/response reading, and uses nearest rank over the retained window sample; sample count is disclosed. Charts show counts in sliding 60-second bins, not extrapolated rates. Pre-start and retention gaps are unavailable, not zero.
+
+All telemetry is process-local memory. Since-restart totals are retained for the life of this connector; rolling data keeps at most 4096 completions for 60 minutes. Window coverage is marked partial when capacity eviction affects it. Totals saturate at the JavaScript exact integer limit and disclose lower bounds if reached. No persistence or reset endpoint is added. A new process starts with empty counters and observations. At most 32 recent connection identities are retained internally; identity hashes, endpoint addresses, credential references, prompts, responses and event details are never returned in the metrics API.
+
+The configured connection and observed response are separate. A successful unsaved connection test does not enable model assistance or prove that a different saved connection works. Last observation is historical, never a continuous availability probe. IPAM last change is not source freshness. DHCP active leases count unexpired leases stored on this node and do not measure allocatable capacity or exhaustion. MISP status is read-only existing health; no protection effectiveness or EDL qualification follows from this dashboard.
+
+`GET /api/dashboard/operations/get?minutes=15` (or `60`) requires Dashboard view. Model/IPAM/protection aggregates additionally require Settings view; DHCP requires DHCP view. Unpermitted sections are null and rendered as restricted. Administration modify remains required to send a model connection test. Metrics responses are not cached. No statistics collection runs in resolver or DHCP request hooks, and no disk writes are added.
+
+Run `dotnet run --project tests/Ipam.Tests/Ipam.Tests.csproj -c Release -- --llm-metrics` for benign telemetry fixtures, independent of analytics/MISP/EDL suites.
+
 ## Validation
+
+Run `dotnet run --project tests/Ipam.Tests/Ipam.Tests.csproj -c Release -- --llm` for benign connector-only fixtures. This entry point does not run detector, exfiltration, MISP or EDL checks and does not call an external model.
 
 Synthetic detector regressions, mocked provider request/response tests and native API permission tests exercise this implementation. They do not establish accuracy, a live Ollama/vLLM connection, GPU compatibility, GPU capacity or any hosted model's privacy/retention behavior. No production provider is configured or called during those tests. Trained classifiers and predictive intelligence are separate delivery items in [the roadmap](SECURITY-ROADMAP.md).
 

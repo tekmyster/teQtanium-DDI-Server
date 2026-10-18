@@ -1,8 +1,8 @@
 # License boundaries
 
-## Publication hold
+## Scoped source publication authorization
 
-The owner's latest instruction requires all fork-specific code differences to remain private. Do not publish pending changes to a public repository or distribute their source or binaries as public release assets. Private build and deployment work may continue. PUBLICATION-HOLD.txt enforces the hold in public packaging. Previously published history is not made confidential by this policy and previously granted licenses are not revoked.
+Owner authorization on 2026-10-18 permits publication of the reviewed GPL LLM/dashboard v2 source identified in docs/COMMUNITY-PUBLICATION.md and COMMUNITY-SOURCE.json to the community and private repositories. This supersedes the blanket source hold only for that frozen change set and its publication policy. All other pending changes remain private. Public binary packaging and release assets remain on hold; private implementations and operational evidence must never enter public history or artifacts. Preserve GPL notices and run the public source guard.
 
 Keeping modifications unpublished is separate from their license: upstream modifications retain GPL-3.0 notices and applicable distribution obligations. Do not replace those notices with proprietary headers. Independently authored private extensions follow the new-file rules below.
 

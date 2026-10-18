@@ -11,6 +11,8 @@ if (args.Contains("--syslog")) { await SyslogChecks.Run(); return; }
 
 if (args.Contains("--transport")) { await DistributedTransportChecks.Run(args.Contains("--serve")); return; }
 if (args.Contains("--api") || args.Contains("--serve")) { await ApiChecks.Run(args.Contains("--serve")); return; }
+if (args.Contains("--llm")) { await LlmChecks.Run(); return; }
+if (args.Contains("--llm-metrics")) { await LlmTelemetryChecks.Run(); return; }
 if (args.Contains("--security-analytics")) { await SecurityAnalyticsChecks.Run(); return; }
 if (args.Contains("--security")) { await SecurityChecks.Run(); return; }
 if (args.Contains("--udp-listeners")) { await DistributedDhcpChecks.RunUdpListeners(); return; }

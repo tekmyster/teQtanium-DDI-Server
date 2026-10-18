@@ -1,3 +1,3 @@
-All fork-specific code differences must remain private, per the owner's latest instruction.
-Do not push pending changes to public GitHub or publish public source, binaries, containers, installers, or CI artifacts.
-Existing GPL notices remain in force. Private builds and deployments may continue.
+Public binary packaging, containers, installers and release assets remain on hold.
+Only the reviewed GPL source snapshot identified in COMMUNITY-SOURCE.json is authorized for community publication. Run scripts/check-public-license.ps1 -SourceOnly for this source gate; packaging must use the default guard and remains blocked.
+Other unpublished changes and private implementations remain private. GPL notices remain in force.

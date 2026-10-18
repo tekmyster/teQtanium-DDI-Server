@@ -2574,6 +2574,7 @@ var chartLegendOnClick = function (e, legendItem) {
 }
 
 function refreshDashboard(hideLoader) {
+    refreshOperations();
     if (!$("#mainPanelTabPaneDashboard").hasClass("active"))
         return;
 

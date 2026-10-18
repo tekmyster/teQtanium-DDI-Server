@@ -1,4 +1,31 @@
 var ddiSecurityPolicy = null;
+// Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+var securityModelTestRequest = null;
+function securityModelSettings() {
+    return { enabled: $('#securityLlmEnabled').prop('checked'), endpoint: $('#securityLlmEndpoint').val(), model: $('#securityLlmModel').val(), apiKeyEnvironment: $('#securityLlmCredential').val(), allowRemote: $('#securityLlmRemote').prop('checked'), shareDomains: $('#securityLlmDomains').prop('checked') };
+}
+function securityCancelModelTest() {
+    if (securityModelTestRequest) securityModelTestRequest.abort();
+}
+function securityTestModel() {
+    if (securityModelTestRequest) return;
+    var output = $('#securityLlmTestStatus').empty().text('Contacting model… This can take up to 30 seconds.');
+    $('#securityLlmTest').prop('disabled', true); $('#securityLlmCancel').show();
+    securityModelTestRequest = $.ajax({ url: '/api/security/model/test', type: 'POST', dataType: 'json', timeout: 35000,
+        headers: { Authorization: 'Bearer ' + sessionData.token }, data: { settings: JSON.stringify(securityModelSettings()) },
+        success: function (response) {
+            if (response.status === 'invalid-token') { output.text('Session expired. Sign in and test again.'); showPageLogin(); return; }
+            if (response.status !== 'ok') { output.text(response.errorMessage || 'Connection test unavailable. Check the model settings and try again.'); return; }
+            var result = response.response && response.response.analysis;
+            if (!result || !result.summary) { output.text('The model returned no usable reply. Check its Chat Completions compatibility.'); return; }
+            output.empty().append($('<p>').text('Model replied. Settings have not been saved.'))
+                .append($('<p>').text(result.summary).css('white-space', 'pre-wrap'))
+                .append($('<p>').addClass('text-muted').text('Synthetic connection check · ' + result.model + ' · ' + productTime(result.timestamp)));
+        },
+        error: function (_, status) { output.text(status === 'abort' ? 'Connection test canceled.' : status === 'timeout' ? 'Connection test timed out. Check the model server and try again.' : 'Connection test unavailable. Check the server connection and try again.'); },
+        complete: function () { securityModelTestRequest = null; $('#securityLlmCancel').hide(); $('#securityLlmTest').prop('disabled', !sessionData.info.permissions.Administration.canModify); }
+    });
+}
 
 function securityRequest(path, method, data, success, error) {
     HTTPRequest({ url: '/api/security/' + path, method: method, data: data || {}, token: sessionData.token,
@@ -21,7 +48,7 @@ function refreshSecurity() {
         var llm = p.llm || {};
         $('#securityLlmEnabled').prop('checked', !!llm.enabled); $('#securityLlmEndpoint').val(llm.endpoint || ''); $('#securityLlmModel').val(llm.model || '');
         $('#securityLlmCredential').val(llm.apiKeyEnvironment || ''); $('#securityLlmRemote').prop('checked', !!llm.allowRemote); $('#securityLlmDomains').prop('checked', !!llm.shareDomains);
-        $('#securityLlmEnabled, #securityLlmEndpoint, #securityLlmModel, #securityLlmCredential, #securityLlmRemote, #securityLlmDomains').prop('disabled', !sessionData.info.permissions.Administration.canModify);
+        $('#securityLlmEnabled, #securityLlmEndpoint, #securityLlmModel, #securityLlmCredential, #securityLlmRemote, #securityLlmDomains, #securityLlmTest').prop('disabled', !sessionData.info.permissions.Administration.canModify);
         $('#securityMispEnabled, #securityMispUrl, #securityMispCredential, #securityMispRefresh, #securityMispLifetime').prop('disabled', !sessionData.info.permissions.Administration.canModify);
         $('#securityHealth').text('MISP: ' + (!p.misp.enabled ? 'Disabled' : data.mispHealth.lastSuccess ? 'Last updated ' + productTime(data.mispHealth.lastSuccess) : 'Awaiting first update') + ' · Shared signals: ' + (data.signalHealth.status.indexOf('failed') >= 0 ? 'Sync interrupted' : data.signalHealth.lastSuccess ? 'Last delivery completed' : 'Local evidence available'));
         $('#securityHealthDetails').text('Policy revision: ' + p.revision + ' · Cached indicators: ' + data.mispHealth.indicators + ' · Dropped event deliveries: ' + data.droppedEvents + ' · MISP status: ' + data.mispHealth.status + ' · Signal status: ' + data.signalHealth.status);
@@ -53,7 +80,7 @@ function saveSecuritySettings() {
         enabled: $('#securityEnabled').prop('checked'), mode: $('#securityMode').val(), inspectAuthoritative: $('#securityAuthoritative').prop('checked'),
         alertThreshold: Number($('#securityAlertThreshold').val()), deviceThreshold: Number($('#securityDeviceThreshold').val()),
         deviceDnsResponse: $('#securityDeviceDns').val(), dhcpResponse: $('#securityDhcpResponse').val(),
-        llm: { enabled: $('#securityLlmEnabled').prop('checked'), endpoint: $('#securityLlmEndpoint').val(), model: $('#securityLlmModel').val(), apiKeyEnvironment: $('#securityLlmCredential').val(), allowRemote: $('#securityLlmRemote').prop('checked'), shareDomains: $('#securityLlmDomains').prop('checked') },
+        llm: securityModelSettings(),
         misp: { enabled: $('#securityMispEnabled').prop('checked'), url: $('#securityMispUrl').val(), apiKeyEnvironment: $('#securityMispCredential').val(), refreshSeconds: Number($('#securityMispRefresh').val()), cacheLifetimeHours: Number($('#securityMispLifetime').val()) }
     });
     submitSecurityPolicy(policy);

@@ -60,6 +60,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
     <script src="js/syslog.js?v=0.1.0-alpha.4"></script>
     <script src="js/product-ux.js"></script>
     <script src="js/migration.js"></script>
+    <script src="js/dashboard-operations.js"></script>
+    <link rel="stylesheet" href="css/dashboard-operations.css" />
 </head>
 <body>
     <div id="header">
@@ -172,6 +174,38 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
                             <div class="tab-content">
                                 <div id="mainPanelTabPaneDashboard" role="tabpanel" class="tab-pane active" style="padding: 10px 0 0 0;">
+                                    <section id="dashboardOperations" aria-labelledby="operationsHeading">
+                                        <h3 id="operationsHeading">Operations on this node</h3>
+                                        <p id="operationsScope" class="text-muted">Node-local snapshots; no cluster totals.</p>
+                                        <div class="operations-window">
+                                            <label for="operationsWindow">LLM time window</label>
+                                            <select id="operationsWindow" class="form-control" onchange="refreshOperations()"><option value="15">Last 15 minutes</option><option value="60" selected>Last hour</option></select>
+                                            <button type="button" class="btn btn-default" onclick="refreshOperations()">Refresh operations</button>
+                                        </div>
+                                        <p id="operationsStatus" role="status" aria-live="polite">Loading operational metrics…</p>
+                                        <div id="operationsBody" style="display:none">
+                                            <div id="operationsServices" class="row"></div>
+                                            <p id="operationsLlmRestricted" style="display:none">Model statistics require Settings view permission.</p>
+                                            <div id="operationsLlm">
+                                                <h4>Model usage and requests</h4>
+                                                <p id="operationsModelState"></p><p id="operationsModelLastSuccess" class="text-muted"></p>
+                                                <div id="operationsLlmCards" class="row"></div>
+                                                <p id="operationsLatency" title="Nearest-rank percentiles of successful connector calls, including connection setup and response reading. Busy, failed and canceled calls are excluded."></p>
+                                                <p id="operationsCoverage" class="text-muted"></p><p id="operationsRetention" class="text-muted"></p>
+                                                <p id="operationsCounterLimit" class="text-warning" style="display:none">A counter reached the exact reporting limit. Values are lower bounds.</p>
+                                                <p id="operationsEmpty"></p>
+                                                <div class="row">
+                                                    <div class="col-sm-6"><h5>Provider-reported tokens</h5><div class="operations-chart"><canvas id="operationsTokenChart" role="img" aria-label="Reported input and output tokens by minute. Equivalent values are in View minute totals."></canvas></div></div>
+                                                    <div class="col-sm-6"><h5>Request outcomes</h5><div class="operations-chart"><canvas id="operationsRequestChart" role="img" aria-label="Successful, failed, canceled, timed out and busy requests by minute. Equivalent values are in View minute totals."></canvas></div></div>
+                                                </div>
+                                                <p class="text-muted">Charts use 60-second bins relative to this snapshot. Gaps mean unavailable usage or unobserved intervals; the first observed bin may be partial.</p>
+                                                <details><summary>View minute totals</summary><div class="table-responsive"><table class="table table-condensed"><thead><tr><th>Bin start</th><th>Requests</th><th>Successful</th><th>Failed</th><th>Canceled</th><th>Timed out</th><th>Busy</th><th>Reported tokens</th><th>Usage reported</th><th>Usage unknown</th></tr></thead><tbody id="operationsTrendRows"></tbody></table></div></details>
+                                                <details><summary>Counters since this process started</summary><div id="operationsLifetime"></div></details>
+                                                <details><summary>Metric definitions</summary><p>Input, output and total tokens come only from valid provider usage fields. Missing or invalid usage is unavailable, with no estimates or cost calculation. Request counts include connector attempts, including local capacity rejection; API validation failures before the connector are excluded. Busy includes local rejection and provider rate limiting. Latency uses nearest-rank percentiles of successful calls, including connection setup and response reading. Settings and reachability are separate: a historical successful check does not establish current availability. These metrics describe this node's requests, not total GPU activity.</p></details>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    <h3>DNS traffic</h3>
                                     <div>
                                         <div class="pull-left">
                                             <div class="btn-group" data-toggle="buttons">
@@ -2563,6 +2597,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                                 </div>
                                                 <p><label><input id="securityLlmRemote" type="checkbox" /> Allow a network endpoint</label></p>
                                                 <p><label><input id="securityLlmDomains" type="checkbox" /> Include registered domains in analysis</label></p>
+                                                <p><button id="securityLlmTest" class="btn btn-default" type="button" onclick="securityTestModel()">Test connection</button> <button id="securityLlmCancel" class="btn btn-default" type="button" style="display:none" onclick="securityCancelModelTest()">Cancel test</button></p>
+                                                <p class="help-block">Test sends a fixed, benign question using the fields above. It does not send event data or save settings.</p>
+                                                <div id="securityLlmTestStatus" role="status" aria-live="polite"></div>
                                                 <p class="help-block">Analysis sends selected event evidence to the configured model when requested. Client addresses, hardware addresses and full query names are omitted. Network endpoints require HTTPS. Model explanations do not change protection.</p>
                                             </details>
                                             <button class="btn btn-primary" type="submit">Save settings</button>

@@ -4,7 +4,7 @@
 
 Company: Tekmyster Industries, LLC. Product spelling: teQtanium. Keep all existing GPL notices. License failure must never stop DNS/DHCP; banner feedback only. See LICENSE.md for the requested edition terms, subject to the GPL scope in THIRD-PARTY-NOTICES.md.
 
-Latest owner instruction: all fork-specific code changes must remain private. Public publication is on hold. Do not push pending changes to a public repository, publish release assets, or upload changed source/binaries as public CI artifacts. This confidentiality requirement does not relicense upstream GPL modifications. Keep their original GPL notices. Private deployment/build work may continue without public publication.
+Owner authorization on 2026-10-18 permits publication of the reviewed GPL LLM/dashboard v2 source identified in docs/COMMUNITY-PUBLICATION.md and COMMUNITY-SOURCE.json to the community and private repositories. This supersedes the blanket source hold only for that frozen change set and its publication policy. All other pending changes remain private. Public binary packaging and release assets remain on hold; private implementations and operational evidence must never enter public history or artifacts. Preserve GPL notices and run the public source guard.
 
 Read [LICENSE-BOUNDARIES.md](docs/LICENSE-BOUNDARIES.md) before creating or moving files. All upstream files and modifications remain GPL-3.0; preserve original copyright headers and license notices. Never relabel previously GPL-distributed files as proprietary.
 

@@ -2199,6 +2199,7 @@ namespace DnsServerCore
             _webService.MapGetAndPost("/api/dashboard/metrics/json", _dashboardApi.GetMetricsJson);
             _webService.MapGetAndPost("/api/dashboard/metrics/text", _dashboardApi.GetMetricsText);
             _webService.MapGetAndPost("/api/dashboard/stats/get", _dashboardApi.GetStatsAsync);
+            _webService.MapGet("/api/dashboard/operations/get", GetOperationsMetrics);
             _webService.MapGetAndPost("/api/dashboard/stats/getTop", _dashboardApi.GetTopStatsAsync);
             _webService.MapGetAndPost("/api/dashboard/stats/deleteAll", _logsApi.DeleteAllStats);
 
@@ -2303,6 +2304,7 @@ namespace DnsServerCore
             _webService.MapPost("/api/security/policy/set", _securityApi.SetPolicy);
             _webService.MapGetAndPost("/api/security/events/list", _securityApi.Events);
             _webService.MapPost("/api/security/events/analyze", _securityApi.AnalyzeEvent);
+            _webService.MapPost("/api/security/model/test", _securityApi.TestModelConnection);
             _webService.MapGetAndPost("/api/security/simulate", _securityApi.Simulate);
             _webService.MapPost("/api/security/signals/ingest", _securityApi.IngestSignals);
             _webService.MapGetAndPost("/api/security/policy/history", _securityApi.History);

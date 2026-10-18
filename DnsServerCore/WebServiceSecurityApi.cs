@@ -50,6 +50,17 @@ namespace DnsServerCore
             {
                 Authorize(context, PermissionFlag.View); Write(context, "events", _service._security.RecentEvents()); Write(context, "signals", _service._security.Signals());
             }
+            // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+            public async Task TestModelConnection(HttpContext context)
+            {
+                User user = Authorize(context, PermissionFlag.View);
+                if (!_service._authManager.IsPermitted(PermissionSection.Administration, user, PermissionFlag.Modify)) throw new DnsWebServiceException("Administration modify permission is required to test a model connection.");
+                string json = context.Request.GetQueryOrForm("settings");
+                if (Encoding.UTF8.GetByteCount(json) > 8192) throw new ArgumentException("Model connection settings exceed 8 KiB.");
+                var settings = JsonSerializer.Deserialize<LlmSettings>(json, DdiSecurityManager.JsonOptions) ?? throw new ArgumentException("Enter model connection settings.");
+                Write(context, "analysis", await _service._security.TestModelConnectionAsync(settings, context.RequestAborted));
+                _service._log.Write(_service.GetRemoteEndPoint(context), "[" + user.Username + "] Tested model connection with synthetic data.");
+            }
             public async Task AnalyzeEvent(HttpContext context)
             {
                 User user = Authorize(context, PermissionFlag.View);
