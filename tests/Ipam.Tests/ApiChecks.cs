@@ -223,7 +223,7 @@ static class ApiChecks
             Check((await original.GetStringAsync("/js/security.js")).Contains("refreshSecurity"), "Security console asset not served");
             using var securityBackup = await original.GetAsync("/api/settings/backup?dnsSettings=true");
             using (var archive = new System.IO.Compression.ZipArchive(new MemoryStream(await securityBackup.Content.ReadAsByteArrayAsync())))
-                Check(archive.GetEntry("security.json") is not null && archive.GetEntry("security-signals.json") is not null && archive.GetEntry("security-misp.json") is not null, "Shared security state omitted from configuration transfer format");
+                Check(archive.GetEntry("security.json") is not null && archive.GetEntry("security-signals.json") is not null && archive.GetEntry("security-misp.json") is not null && archive.GetEntry("security-edl.json") is not null, "Shared security state omitted from configuration transfer format");
             Check((await Call(fresh, "/api/security/policy/get")).GetProperty("status").GetString() == "ok", "Fresh administrative security access failed");
             var protectedPolicy = securityPolicy with { Misp = new MispSettings(false, "https://configured.example/"), Indicators = securityPolicy.Indicators.Append(new ThreatIndicator("inventory-ioc", "Network", "192.0.2.10", "Monitor", "Inventory lab")).ToArray() };
             Check((await Call(original, "/api/security/policy/set", ("revision", "2"), ("policy", SerializePolicy(protectedPolicy)))).GetProperty("status").GetString() == "ok", "Inventory security policy setup failed");
@@ -239,6 +239,23 @@ static class ApiChecks
             Check((await Call(dnsAdmin, "/api/security/policy/set", ("revision", "3"), ("policy", SerializePolicy(protectedPolicy)))).GetProperty("status").GetString() == "ok", "Fresh DNS admin session lacks intended policy modify privilege");
             var unauthorizedSource = protectedPolicy with { Misp = new MispSettings(false, "https://unapproved.example/") };
             Check((await Call(dnsAdmin, "/api/security/policy/set", ("revision", "4"), ("policy", SerializePolicy(unauthorizedSource)))).GetProperty("status").GetString() == "error", "DNS-only admin can redirect MISP credential use");
+            var unauthorizedEdl = protectedPolicy with { EdlFeeds = [new("unapproved", "Network", "https://unapproved.example/feed.txt")] };
+            Check((await Call(dnsAdmin, "/api/security/policy/set", ("revision", "4"), ("policy", SerializePolicy(unauthorizedEdl)))).GetProperty("status").GetString() == "error", "DNS-only admin can configure EDL credential destination");
+            unauthorizedEdl = protectedPolicy with { EdlPublications = [new("unapproved", "Network", [new("Inventory lab", "inventory-ioc")], true)] };
+            Check((await Call(dnsAdmin, "/api/security/policy/set", ("revision", "4"), ("policy", SerializePolicy(unauthorizedEdl)))).GetProperty("status").GetString() == "error", "DNS-only admin can publish private intelligence");
+            using (var insecureEdl = await original.GetAsync("/api/security/edl/export?list=private"))
+                Check(insecureEdl.StatusCode == HttpStatusCode.Forbidden && (await insecureEdl.Content.ReadAsStringAsync()).Length == 0, "EDL publication allowed plaintext or returned a false successful list");
+            using (var alternateEdl = await original.GetAsync("/api/security/edl/export/?list=private"))
+                Check(alternateEdl.StatusCode == HttpStatusCode.Forbidden && (await alternateEdl.Content.ReadAsStringAsync()).Length == 0, "Trailing-slash EDL route bypassed transport boundary");
+            checks += await EdlHttpChecks.Run(service, (DdiSecurityManager)typeof(DnsWebService).GetField("_security", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(service), original, dnsAdmin, reader);
+            using (var restrictedSecurityBackup = new MemoryStream())
+            {
+                using (var zip = new System.IO.Compression.ZipArchive(restrictedSecurityBackup, System.IO.Compression.ZipArchiveMode.Create, true))
+                using (var writer = new StreamWriter(zip.CreateEntry("security-edl.json").Open())) writer.Write("[]");
+                using var attempt = new MultipartFormDataContent(); attempt.Add(new StringContent("true"), "dnsSettings"); attempt.Add(new ByteArrayContent(restrictedSecurityBackup.ToArray()), "file", "restricted-security.zip");
+                using var result = await dnsAdmin.PostAsync("/api/settings/restore", attempt); using var parsed = JsonDocument.Parse(await result.Content.ReadAsStringAsync());
+                Check(parsed.RootElement.GetProperty("status").GetString() == "error", "Native restore bypassed security intelligence administration permission");
+            }
             Check((await Call(dnsAdmin,"/api/logging/syslog/set",("revision","4"),("settings","{}"))).GetProperty("status").GetString()=="error", "DNS-only admin can redirect syslog exports");
             using(var restrictedBackup=new MemoryStream())
             {

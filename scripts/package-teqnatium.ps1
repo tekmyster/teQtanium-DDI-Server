@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+-alph
       [ValidateSet('portable','win-x64','linux-x64','linux-arm64')][string]$Runtime='portable')
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-& (Join-Path $root 'scripts/check-public-license.ps1') -RepositoryRoot $root
+& (Join-Path $root 'scripts/check-public-license.ps1') -RepositoryRoot $root -PublicationScope PublicBinary
 $output=Join-Path $root "artifacts/packages/$Version"
 $payload=Join-Path $output $Runtime
 if (Test-Path -LiteralPath $payload) { throw 'Use a new output directory for an immutable package.' }

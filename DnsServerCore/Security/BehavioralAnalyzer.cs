@@ -8,6 +8,7 @@ namespace DnsServerCore.Security
 {
     public sealed class PublicSuffixes
     {
+        public string VersionSha256 { get; }
         readonly HashSet<string> _rules = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> _wildcards = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> _exceptions = new HashSet<string>(StringComparer.Ordinal);
@@ -21,6 +22,9 @@ namespace DnsServerCore.Security
                 else if (rule.StartsWith("*.", StringComparison.Ordinal)) _wildcards.Add(Normalize(rule[2..]));
                 else _rules.Add(Normalize(rule));
             }
+            // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+            string canonical = string.Join('\n', _rules.Concat(_wildcards.Select(r => "*." + r)).Concat(_exceptions.Select(r => "!" + r)).OrderBy(r => r, StringComparer.Ordinal)) + "\n";
+            VersionSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
         }
         public static string Normalize(string name)
         {
@@ -46,7 +50,7 @@ namespace DnsServerCore.Security
     public sealed class BehavioralAnalyzer
     {
         const int MaxStreams = 4096, MaxSamples = 512;
-        readonly record struct Sample(DateTime Time, ulong Name, bool HasPrefix, bool Long, bool Entropy, bool Txt, bool Nx, bool DgaLexical);
+        readonly record struct Sample(DateTime Time, ulong Name, bool HasPrefix, bool Long, bool Entropy, bool Txt, bool Nx, bool DgaLexical, int LabelLength, double LabelEntropy);
         sealed class Stream
         {
             public DateTime Last, LastDropped;
@@ -63,6 +67,8 @@ namespace DnsServerCore.Security
         readonly Dictionary<(string Client, string Domain), Stream> _domains = new();
         readonly Dictionary<string, Stream> _clients = new(StringComparer.Ordinal);
         readonly PublicSuffixes _suffixes;
+        DnsTunnelingSettings _tunneling = new();
+        long _tunnelingRevision = -1;
         public BehavioralAnalyzer(PublicSuffixes suffixes) { _suffixes = suffixes; }
         public static double Entropy(string text)
         {
@@ -86,23 +92,27 @@ namespace DnsServerCore.Security
             }
             streams[key] = stream = new Stream(); return stream;
         }
-        static BehavioralFinding Tunneling(Stream stream, int minutes, DateTime now)
+        static BehavioralFinding Tunneling(Stream stream, int minutes, int volume, DateTime now, DnsTunnelingSettings policy)
         {
             DateTime cutoff = now.AddMinutes(-minutes);
             var samples = stream.Samples.Where(s => s.Time > cutoff).ToArray();
             int count = samples.Length;
             List<ScoreContribution> points = [];
             int unique = samples.Where(s => s.HasPrefix).Select(s => s.Name).Distinct().Count();
-            bool lexical = count > 0 && (samples.Count(s => s.Long) >= count * .5 || samples.Count(s => s.Entropy) >= count * .5);
-            bool novelty = unique >= 25 && unique >= count * .8;
-            if (count >= 30)
+            bool IsLong(Sample sample) => sample.LabelLength >= policy.LongLabelLength;
+            bool IsEntropy(Sample sample) => sample.LabelLength >= policy.EntropyMinimumLength && sample.LabelEntropy >= policy.EntropyThreshold;
+            bool longLabels = count > 0 && samples.Count(IsLong) >= count * policy.LexicalRatio;
+            bool entropy = count > 0 && samples.Count(IsEntropy) >= count * policy.LexicalRatio;
+            bool lexical = longLabels || entropy;
+            bool novelty = unique >= policy.MinimumUniqueSubdomains && unique >= count * policy.NoveltyRatio;
+            if (count >= policy.MinimumSamples)
             {
-                if (samples.Count(s => s.Long) >= count * .5) points.Add(new("LongLabels", 20, "At least half of sampled names have labels of 32 or more characters."));
-                if (samples.Count(s => s.Entropy) >= count * .5) points.Add(new("HighEntropy", 20, "At least half of sampled names have long, high-entropy labels."));
-                if (novelty) points.Add(new("UniqueSubdomains", 25, "At least 25 distinct subdomains account for 80% or more of sampled queries."));
-                if (count >= (minutes == 5 ? 60 : 120)) points.Add(new("QueryVolume", 15, "Elevated query count in the observation window."));
-                if (samples.Count(s => s.Txt) >= count * .5) points.Add(new("TxtRatio", 10, "At least half of sampled queries use TXT; this is supporting evidence only."));
-                if (samples.Count(s => s.Nx) >= count * .5) points.Add(new("NxDomainRatio", 10, "At least half of sampled responses are NXDOMAIN."));
+                if (longLabels) points.Add(new("LongLabels", 20, $"At least {policy.LexicalRatio:P0} of sampled names have labels of {policy.LongLabelLength} or more characters."));
+                if (entropy) points.Add(new("HighEntropy", 20, $"At least {policy.LexicalRatio:P0} of sampled names have labels of at least {policy.EntropyMinimumLength} characters and entropy of {policy.EntropyThreshold} bits per character."));
+                if (novelty) points.Add(new("UniqueSubdomains", 25, $"At least {policy.MinimumUniqueSubdomains} distinct subdomains account for {policy.NoveltyRatio:P0} or more of sampled queries."));
+                if (count >= volume) points.Add(new("QueryVolume", 15, $"At least {volume} sampled queries in the {minutes}-minute observation window."));
+                if (samples.Count(s => s.Txt) >= count * policy.TxtRatio) points.Add(new("TxtRatio", 10, $"At least {policy.TxtRatio:P0} of sampled queries use TXT; this is supporting evidence only."));
+                if (samples.Count(s => s.Nx) >= count * policy.NxDomainRatio) points.Add(new("NxDomainRatio", 10, $"At least {policy.NxDomainRatio:P0} of sampled responses are NXDOMAIN."));
             }
             // Lexical and changing-payload evidence must corroborate each other before escalation.
             int score = Math.Min(100, points.Sum(p => p.Points));
@@ -142,7 +152,7 @@ namespace DnsServerCore.Security
             }
             return new("PeriodicDns", "ClientDomain", points.Sum(p => p.Points), samples.Length, samples[0].Time, 60, stream.LastDropped > now.AddHours(-1), points.ToArray());
         }
-        public BehavioralScore Observe(string clientKey, string name, string type, bool nxDomain, DateTime now)
+        public BehavioralScore Observe(string clientKey, string name, string type, bool nxDomain, DateTime now, DnsTunnelingSettings tunneling = null, long policyRevision = 0)
         {
             name = PublicSuffixes.Normalize(name);
             string domain = _suffixes.RegistrableDomain(name);
@@ -150,16 +160,35 @@ namespace DnsServerCore.Security
             string longest = prefix.Split('.').OrderByDescending(s => s.Length).First();
             string registeredLabel = domain.Split('.')[0];
             bool dga = registeredLabel.Length >= 16 && registeredLabel.Distinct().Count() >= 10 && Entropy(registeredLabel) >= 3.5;
-            Sample sample = new(now, Fingerprint(prefix), prefix.Length > 0, longest.Length >= 32, longest.Length >= 20 && Entropy(longest) >= 4.0, type == "TXT", nxDomain, dga);
+            double labelEntropy = Entropy(longest);
+            Sample sample = new(now, Fingerprint(prefix), prefix.Length > 0, longest.Length >= 32, longest.Length >= 20 && labelEntropy >= 4.0, type == "TXT", nxDomain, dga, longest.Length, labelEntropy);
             lock (_sync)
             {
-                var domainStream = GetStream(_domains, (clientKey, domain), now);
-                var clientStream = GetStream(_clients, clientKey, now);
+                tunneling ??= new DnsTunnelingSettings();
+                bool retiredSettings = _tunneling != tunneling && policyRevision < _tunnelingRevision;
+                if (_tunneling != tunneling && !retiredSettings)
+                {
+                    // Rebuild evidence under the new gates; never mix configurations in a window.
+                    _domains.Clear(); _clients.Clear(); _tunneling = tunneling;
+                }
+                _tunnelingRevision = Math.Max(_tunnelingRevision, policyRevision);
+                // An in-flight older policy may evaluate one sample, but cannot erase or mix newer windows.
+                var domainStream = retiredSettings ? new Stream() : GetStream(_domains, (clientKey, domain), now);
+                var clientStream = retiredSettings ? new Stream() : GetStream(_clients, clientKey, now);
                 domainStream.Add(sample); clientStream.Add(sample with { Name = Fingerprint(domain) });
-                BehavioralFinding[] findings = [Tunneling(domainStream, 5, now), Tunneling(domainStream, 60, now), Dga(clientStream, now), Periodicity(domainStream, now)];
+                BehavioralFinding[] findings = [Tunneling(domainStream, tunneling.ShortWindowMinutes, tunneling.ShortWindowVolume, now, tunneling), Tunneling(domainStream, tunneling.LongWindowMinutes, tunneling.LongWindowVolume, now, tunneling), Dga(clientStream, now), Periodicity(domainStream, now)];
                 // Stable ordering favors the short window when scores tie.
                 var selected = findings.OrderByDescending(f => f.Score).First();
-                return new(selected.Score, domain, selected.Samples, selected.WindowStart, selected.Contributions, "heuristic-v2", "Uncalibrated", findings.Where(f => f.Score > 0).ToArray(), selected.WindowMinutes, selected.SampleLimited);
+                // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+                // A fixed domain/hour feature contract, independent of the selected heuristic finding.
+                var featureSamples = domainStream.Samples.ToArray();
+                double Ratio(Func<Sample, bool> predicate) => (double)featureSamples.Count(predicate) / featureSamples.Length;
+                return new(selected.Score, domain, selected.Samples, selected.WindowStart, selected.Contributions, "heuristic-v2", "Uncalibrated", findings.Where(f => f.Score > 0).ToArray(), selected.WindowMinutes, selected.SampleLimited || domainStream.LastDropped > now.AddHours(-1))
+                {
+                    FeatureSchema = PredictiveModelRegistry.Schema,
+                    FeatureSourceSha256 = _suffixes.VersionSha256,
+                    FeatureVector = [Ratio(s => s.Long), Ratio(s => s.Entropy), Ratio(s => s.Txt), Ratio(s => s.Nx), (double)featureSamples.Select(s => s.Name).Distinct().Count() / featureSamples.Length, Ratio(s => s.DgaLexical), (double)featureSamples.Length / MaxSamples]
+                };
             }
         }
     }

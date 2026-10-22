@@ -1,5 +1,7 @@
 # Install teQtanium DDI Server
 
+This guide describes alpha package formats; it is not evidence that a current download exists. Public binary releases remain held. A separately authorized private candidate must have an exact manifest, relevant acceptance and a deployment plan before installation. [Dated status](../docs/DEPLOYMENT-STATUS.md) distinguishes local source from deployment acceptance.
+
 These alpha packages contain the teQtanium application, not server configuration or model weights. Verify SHA256SUMS before installation. Export a backup before changing an existing deployment.
 
 | Download | Use |
@@ -16,4 +18,4 @@ The Linux installer creates tectanium-ddi.service with a dedicated service accou
 
 For a manual portable launch, run `dotnet DnsServerApp.dll --portable-app /absolute/configuration/path`, or the native executable for a self-contained package. The upstream API/environment identifiers remain available. Configure an initial credential with DNS_SERVER_ADMIN_PASSWORD_FILE before first start. New configuration without an explicit credential retains the engine's admin/admin default; change it before granting network access. The automatic service installers supply a random credential instead.
 
-See the project's docs/FEATURE-MATRIX.md for feature status, docs/BACKUP-MIGRATION.md for migration, and docs/SECURITY-LLM.md for optional model connections. Windows setup is an unsigned alpha installer. macOS and ARM packages require their own platform execution checks before deployment.
+See [feature status](../docs/FEATURE-MATRIX.md), [backup/migration](../docs/BACKUP-MIGRATION.md), and [model connections](../docs/SECURITY-LLM.md). Keep the original administrative session through any credential/access change; a separate fresh session must prove intended credentials, privileges and target-seen source before closing it. Installation success alone does not verify service, lease or repair outcomes. Windows setup is an unsigned alpha installer. macOS and ARM packages require their own platform execution checks before deployment.

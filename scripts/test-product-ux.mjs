@@ -40,6 +40,28 @@ context.showAlert('danger', '<script>unsafe</script>', '<img src=x onerror=unsaf
 assert.match(rendered, /&lt;script&gt;/); assert.doesNotMatch(rendered, /<img src=x/);
 assert.match(rendered, /role="alert"/); assert.match(rendered, /Dismiss notification/);
 
+// Requests issued for a retired authenticated presentation must not execute any
+// success/error/expiry/2FA callback or replace a newer session's alerts/loaders.
+let current = true, guardedSuccess = 0, guardedFailure = 0, guardedExpiry = 0, guardedOtp = 0;
+context.HTTPRequest({ url: '/api/guarded', token: 'fixture-token',
+    isCurrent: () => current, success: () => guardedSuccess++, error: () => guardedFailure++,
+    invalidToken: () => guardedExpiry++, twoFactorAuthRequired: () => guardedOtp++, objLoaderPlaceholder: element });
+const retiredRequest = request;
+current = false;
+rendered = 'new-session-content'; details = 'new-session-details';
+for (const status of ['ok', 'error', 'invalid-token', '2fa-required', 'unexpected'])
+    retiredRequest.success({ status, errorMessage: 'retired actor private details' });
+for (const status of ['error', 'timeout', 'parsererror', 'abort']) retiredRequest.error({}, status, 'retired transport');
+assert.equal(guardedSuccess + guardedFailure + guardedExpiry + guardedOtp, 0);
+assert.equal(rendered, 'new-session-content'); assert.equal(details, 'new-session-details');
+current = true;
+retiredRequest.success({ status: 'ok' }); assert.equal(guardedSuccess, 1);
+retiredRequest.success({ status: 'invalid-token' }); assert.equal(guardedExpiry, 1);
+context.HTTPRequest({ url: '/api/guarded-text', isTextResponse: true, isCurrent: () => false,
+    success: () => guardedSuccess++, error: () => guardedFailure++ });
+rendered = 'current-actor-content'; request.success('retired raw response');
+assert.equal(guardedSuccess, 1); assert.equal(rendered, 'current-actor-content');
+
 for (const name of fs.readdirSync(path.join(root, 'DnsServerCore/www/js')).filter(name => !name.endsWith('.min.js'))) {
     new vm.Script(fs.readFileSync(path.join(root, 'DnsServerCore/www/js', name), 'utf8'), { filename: name });
 }
@@ -59,4 +81,19 @@ assert.doesNotMatch(html, /<pre id="securityEvidence"/);
 assert.equal((html.match(/<details(?:\s|>)/g) || []).length, (html.match(/<\/details>/g) || []).length);
 const ids = Array.from(html.matchAll(/\bid="([^"]+)"/g), match => match[1]);
 assert.equal(new Set(ids).size, ids.length, 'Duplicate DOM identifiers');
-console.log('PASS: shared request outcomes, credential/value preservation, actionable failures, alert escaping/accessibility, JavaScript syntax and presentation contracts.');
+// Hidden-input value changes update their default value in browsers: form.reset()
+// alone must not retain an old actor's discovery source reference.
+let hiddenSourceId = 'previous-actor-source';
+const resetElement = { reset() {} };
+const resetJquery = selector => {
+    const value = { empty() { return this; }, removeAttr() { return this; }, prop() { return this; }, find() { return this; }, hide() { return this; }, append() { return this; }, text() { return this; },
+        val(next) { if (selector === '#ipamDiscoveryId' && next !== undefined) hiddenSourceId = next; return this; } };
+    return value;
+};
+const resetContext = vm.createContext({ $: resetJquery, document: { getElementById: () => resetElement }, console });
+vm.runInContext(fs.readFileSync(path.join(root, 'DnsServerCore/www/js/ipam.js'), 'utf8'), resetContext);
+resetContext.ipamResetSession();
+assert.equal(hiddenSourceId, '', 'Discovery hidden source reference survives actor reset');
+assert.equal(resetContext.ipamDiscoveryData, null);
+assert.equal(resetContext.ipamDiscoveryActiveSourceId, null);
+console.log('PASS: shared request outcomes, credential/value preservation, actionable failures, alert escaping/accessibility, retired-request isolation, JavaScript syntax and presentation contracts.');

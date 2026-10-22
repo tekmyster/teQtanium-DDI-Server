@@ -289,6 +289,8 @@
 		<Content Include="www\js\security.js">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+		<Content Include="www\js\security-session.f45fdea720309cb4.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+		<Content Include="www\js\ipam-manual.c1ab5aa345ec4d7f.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
 		<Content Include="www\js\ddi.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
 		<Content Include="www\js\migration.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
 		<Content Include="www\js\syslog.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>

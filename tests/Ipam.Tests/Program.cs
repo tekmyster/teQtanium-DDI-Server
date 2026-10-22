@@ -2,7 +2,36 @@ using DnsServerCore.Ipam;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Numerics;
+if (args.Length == 3 && args[0] == "--backup-native-child") { await BackupRecoveryChecks.Child(args[1], args[2]); return; }
+if (args.Contains("--backup-recovery")) { await BackupRecoveryChecks.Run(); return; }
+if (args.Length == 2 && args[0] == "--syslog-native-child") { await SyslogReliabilityChecks.NativeChild(args[1]); return; }
+if (args.Length == 3 && args[0] == "--syslog-child") { await SyslogReliabilityChecks.Child(args[1], args[2]); return; }
+if (args.Contains("--syslog-reliability")) { await SyslogReliabilityChecks.Run(); return; }
+if (args.Length == 2 && args[0] == "--feed-service-child") { await FeedNativeBoundaryChecks.Child(args[1]); return; }
+if (args.Contains("--feed-native-boundaries")) { await FeedNativeBoundaryChecks.Run(); return; }
+if (args.Length == 3 && args[0] == "--feed-crash") { await FeedDurabilityChecks.Crash(args[1], args[2]); return; }
+if (args.Contains("--feed-reconciliation")) { await FeedReconciliationChecks.Run(); return; }
+if (args.Contains("--feed-compatibility")) { await FeedCompatibilityChecks.Run(); return; }
+if (args.Contains("--feed-durability")) { await FeedDurabilityChecks.Run(); return; }
+if (args.Contains("--feed-timeout")) { await FeedManagementChecks.Run(timeoutOnly: true); return; }
+if (args.Contains("--feed-native")) { await FeedNativeChecks.Run(); return; }
+if (args.Contains("--feed-management")) { await FeedManagementChecks.Run(); return; }
+if (args.Contains("--voting-model")) { await VotingChecks.Run(); return; }
+if (args.Contains("--voting-native")) { await DistributedTransportChecks.Run(votingOnly: true); return; }
+if (args.Length == 3 && args[0] == "--ownership-crash") { await OwnershipChecks.Crash(args[1], args[2]); return; }
+if (args.Contains("--capacity-model")) { await CapacityChecks.Run(); return; }
+if (args.Contains("--capacity-native")) { await DistributedTransportChecks.Run(capacityOnly: true); return; }
+if (args.Contains("--ownership-model")) { await OwnershipChecks.Run(); return; }
+if (args.Contains("--ownership-native")) { await DistributedTransportChecks.Run(ownershipOnly: true); return; }
+if (args.Contains("--netbox-deletion-scope")) { await NetBoxDeletionScopeChecks.Run(); return; }
+if (args.Length == 4 && args[0] == "--netbox-crash") { await NetBoxReconciliationChecks.CrashFixture(args[1], args[2], args[3]); return; }
+if (args.Contains("--netbox-reconciliation")) { await NetBoxReconciliationChecks.Run(args.Contains("--serve")); return; }
+if (args.Contains("--discovery-scope") || args.Contains("--discovery-scope-baseline")) { await DiscoveryScopeChecks.Run(args.Contains("--discovery-scope-baseline"), args.Contains("--serve")); return; }
+if (args.Length == 2 && args[0] == "--discovery-qualified-read") { await DiscoveryChecks.QualifiedRead(args[1]); return; }
+if (args.Contains("--discovery")) { await DiscoveryChecks.Run(args.Contains("--serve")); return; }
+if (args.Contains("--provisioning")) { await ProvisioningChecks.Run(args.Contains("--serve")); return; }
 
+if (args.Length == 2 && args[0] == "--misp-capacity") { await MispCapacityChecks.Run(args[1]); return; }
 if (args.Length > 0 && (args[0] == "--package" || args[0] == "--prepare-package")) { await PackageChecks.Run(args); return; }
 if (args.Length == 4 && args[0] == "--bootstrap-crash") { await DistributedDhcpChecks.CrashFixture(args[1], args[2], args[3]); return; }
 
@@ -13,8 +42,17 @@ if (args.Contains("--transport")) { await DistributedTransportChecks.Run(args.Co
 if (args.Contains("--api") || args.Contains("--serve")) { await ApiChecks.Run(args.Contains("--serve")); return; }
 if (args.Contains("--llm")) { await LlmChecks.Run(); return; }
 if (args.Contains("--llm-metrics")) { await LlmTelemetryChecks.Run(); return; }
+if (args.Length == 2 && args[0] == "--predictive-child") { await PredictiveModelChecks.Child(args[1]); return; }
+if (args.Length == 2 && args[0] == "--predictive-cold-invalid-child") { await PredictiveModelChecks.Child(args[1], true); return; }
+if (args.Contains("--predictive-store-validation")) { PredictiveModelChecks.StoreMechanicsOnly(); return; }
+if (args.Contains("--predictive-models")) { await PredictiveModelChecks.Run(); return; }
 if (args.Contains("--security-analytics")) { await SecurityAnalyticsChecks.Run(); return; }
 if (args.Contains("--security")) { await SecurityChecks.Run(); return; }
+if (args.Contains("--misp")) { await MispQualificationChecks.Run(); return; }
+if (args.Contains("--edl")) { await EdlChecks.Run(); return; }
+if (args.Contains("--feed-deadlines")) { await FeedDeadlineChecks.Run(); return; }
+if (args.Contains("--direct-transport")) { await DirectTransportChecks.Run(); return; }
+if (args.Contains("--misp-edl-repair")) { await MispEdlRepairChecks.Run(); return; }
 if (args.Contains("--udp-listeners")) { await DistributedDhcpChecks.RunUdpListeners(); return; }
 if (args.Contains("--dhcp")) { await DistributedDhcpChecks.Run(); return; }
 if (args.Contains("--netbox")) { await NetBoxChecks.Run(); return; }

@@ -35,8 +35,12 @@ function renderOperations(data) {
     } else { operationsCard(fleet, 'IPAM inventory', 'Restricted', 'Settings view permission is required.'); operationsCard(fleet, 'Inventory sources', 'Restricted', 'Settings view permission is required.'); }
     if (data.protection) {
         var state = data.protection.enabled ? (data.protection.mode === 'Block' ? 'Block' : 'Monitor') : 'Disabled';
-        var names = { Disabled: 'Disabled', NoSuccessfulRefresh: 'No successful refresh', Stale: 'Stale', Available: 'Available', Unavailable: 'Unavailable' };
-        operationsCard(fleet, 'Protection / MISP', state, 'MISP: ' + names[data.protection.misp.state] + ' · Last successful refresh ' + operationsTime(data.protection.misp.lastSuccess));
+        var health = data.protection.misp;
+        operationsCard(fleet, 'Protection / MISP', state, mispCacheSummary(health));
+        var panel = fleet.children().last().find('.panel-body');
+        panel.append($('<p>').text(mispLocalSummary(health)));
+        var details = $('<details>').append($('<summary>').text('MISP health details'));
+        var fields = $('<div>'); mispHealthDetails(fields, health); details.append(fields); panel.append(details);
     } else operationsCard(fleet, 'Protection / MISP', 'Restricted', 'Settings view permission is required.');
     $('#operationsLlm').toggle(!!data.llm); $('#operationsLlmRestricted').toggle(!data.llm);
     if (!data.llm) return;

@@ -18,11 +18,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 var refreshTimerHandle;
+var sessionUiRevision = 0;
 var reverseProxyDetected = false;
 var quickBlockLists = null;
 var quickForwardersList = null;
 
 function showPageLogin(autoLogin) {
+    sessionUiRevision++;
+    sessionData = null;
+    if (typeof ipamResetSession === 'function') ipamResetSession();
+    var loginPageRevision = sessionUiRevision;
     hideAlert();
 
     localStorage.removeItem("token");
@@ -47,6 +52,7 @@ function showPageLogin(autoLogin) {
 
     HTTPRequest({
         url: "api/status",
+        isCurrent: function () { return sessionUiRevision === loginPageRevision && sessionData === null; },
         success: function (responseJSON) {
             if (responseJSON.ssoEnabled)
                 $("#divLoginSso").show();
@@ -60,6 +66,8 @@ function showPageLogin(autoLogin) {
 }
 
 function showPageMain() {
+    sessionUiRevision++;
+    if (typeof ipamSessionContext === 'function') ipamSessionContext();
     hideAlert();
 
     $("#txtUser").val("");

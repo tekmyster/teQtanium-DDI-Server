@@ -10,10 +10,10 @@ Branding does not imply new production qualification or feature completeness. Th
 
 ## Alpha product identity
 
-The displayed product is teQtanium DDI Server by Arqilo, version 0.1.0-alpha.4. About, documentation, source, support and downloads link to Tekmyster-owned destinations. Apps offers an explicit Technitium catalog choice and the teQtanium portal at https://tectanium.tekmyster.com. The portal entry is a navigation link; a hosted catalog has not been verified.
+The displayed product is teQtanium DDI Server by Tekmyster Industries, LLC, version 0.1.0-alpha.4. About, documentation, source, support and downloads link to Tekmyster-owned destinations. Apps offers an explicit Technitium catalog choice and the teQtanium portal at https://tectanium.tekmyster.com. The portal entry is a navigation link; a hosted catalog has not been verified.
 
 Original copyright/GPL notices stay in source headers and third-party notices. Interactive notices are available under License and third-party notices. API and library identifiers, existing installation paths in recovery runbooks, and the numeric engine compatibility identity remain technical compatibility details. Product alpha versioning is exposed separately and displayed in the console, startup messages and installer metadata.
 
-Current screenshots in docs/screenshots are captured from an isolated instance with example data. About, app-store selection, IPAM and security were checked at desktop and 390 pixels without page overflow. Security rows lead with time/service/client/query/action/score; server, device and reason remain in View evidence. Required notices and developer data remain accessible through disclosure.
+Historical demonstration screenshots in docs/screenshots are captured from an isolated instance with example data. About, app-store selection, IPAM and security were checked at desktop and 390 pixels without page overflow. Security rows lead with time/service/client/query/action/score; server, device and reason remain in View evidence. Required notices and developer data remain accessible through disclosure.
 
 Alpha.3 adds visible Technitium team credit in About and refreshes script version markers. Syslog and About were inspected on desktop and at 390 pixels without page overflow. Syslog uses structured controls, collapsed advanced settings, readable status, confirmed save feedback, specific port validation and a disabled Send test action while forwarding is off. Local output labels distinguish it from forwarding. The desktop screenshots use example server/collector names.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+// Modified by Tekmyster Industries, LLC â€” remains GPL-3.0.
 using DnsServerCore.Auth;
 using DnsServerCore.Security;
 using Microsoft.AspNetCore.Http;
@@ -31,8 +31,11 @@ namespace DnsServerCore
                 string Source(string source) => source switch { "DhcpScope" or "DnsReverseZone" or "DhcpGateway" or "DhcpReservation" or "DnsRecord" => source, null or "" => "Manual", _ => "Other" };
                 ipam = new { networks = inventory.Subnets.Length, assignments = inventory.Assignments.Length, revision = inventory.Revision, lastChange = inventory.Changes.Length == 0 ? (DateTime?)null : inventory.Changes.Max(c => c.Timestamp), sources = inventory.Assignments.GroupBy(a => Source(a.Source)).Select(g => new { source = g.Key, count = g.Count() }).ToArray(), netBoxEnabled = _netbox.Settings.Enabled };
                 var misp = _security.MispStatus;
-                string integrationState = !policy.Misp.Enabled ? "Disabled" : misp.LastSuccess is null ? "NoSuccessfulRefresh" : (now - misp.LastSuccess.Value).TotalSeconds > policy.Misp.RefreshSeconds * 2L ? "Stale" : misp.Status == "Available" ? "Available" : "Unavailable";
-                protection = new { enabled = policy.Enabled, mode = policy.Mode == "Block" ? "Block" : "Monitor", misp = new { state = integrationState, lastSuccess = misp.LastSuccess, lastAttempt = misp.LastAttempt, indicators = misp.Indicators } };
+                // Cache usability and local traversal outcomes are independent dimensions.
+                string integrationState = misp.CacheState == "Usable" ? (misp.ActiveUnsupportedAttributes > 0 ? "PartialCoverage" : "Available") : misp.CacheState;
+                protection = new { enabled = policy.Enabled, mode = policy.Mode == "Block" ? "Block" : "Monitor", misp = new { state = integrationState, lastSuccess = misp.LastSuccess, lastAttempt = misp.LastAttempt, indicators = misp.Indicators, snapshotEntries = misp.SnapshotEntries, unsupportedAttributes = misp.UnsupportedAttributes, dnsMatchingIndicators = misp.DnsMatchingIndicators, urlEvidenceOnly = misp.UrlEvidenceOnly, completeSnapshot = misp.CompleteSnapshot,
+                    cacheState = misp.CacheState, cacheSourceUrl = misp.CacheSourceUrl, cacheOrigin = misp.CacheOrigin, cacheReceivedAt = misp.CacheReceivedAt, cacheFetchedAt = misp.CacheFetchedAt, cacheExpiresAt = misp.CacheExpiresAt, cacheLastExpiresAt = misp.CacheLastExpiresAt, activeUnsupportedAttributes = misp.ActiveUnsupportedAttributes,
+                    localSuccessSourceMatches = misp.LocalSuccessSourceMatches, localRefreshState = misp.LocalRefreshState, localRefreshStale = misp.LocalRefreshStale, lastFailure = misp.LastFailure } };
             }
             if (View(PermissionSection.DhcpServer))
             {

@@ -1,3 +1,7 @@
-Public binary packaging, containers, installers and release assets remain on hold.
-Only the reviewed GPL source snapshot identified in COMMUNITY-SOURCE.json is authorized for community publication. Run scripts/check-public-license.ps1 -SourceOnly for this source gate; packaging must use the default guard and remains blocked.
-Other unpublished changes and private implementations remain private. GPL notices remain in force.
+Publication-Policy: 2
+Community-Source: Authorized
+Public-Binaries: Hold
+Eligible reviewed community GPL source may be published to the community repository.
+Private commercial publication requires explicit PRIVATE repository verification before EACH push.
+Private source, DHCP Q, binaries, secrets, inventory, captures and evidence must never enter public history or CI.
+This policy does not change GPL rights or authorize a push, merge, deployment or binary release by itself.

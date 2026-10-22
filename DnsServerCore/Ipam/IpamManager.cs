@@ -1,3 +1,4 @@
+// Modified by Tekmyster Industries, LLC � remains GPL-3.0
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Net;
 using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 
 namespace DnsServerCore.Ipam
 {
@@ -18,7 +20,7 @@ namespace DnsServerCore.Ipam
     public sealed record IpamChange(long Revision, DateTime Timestamp, string Actor, string Operation, string ObjectId, string Before, string After);
     public sealed record IpamObservation(string Address, string Source, string ObjectName, string HostName, string ClientIdentifier, DateTime? Expires);
     public sealed record IpamFinding(string Address, string Kind, string Detail);
-    public sealed record IpamSnapshot(int Version, long Revision, IpamView[] Views, IpamSubnet[] Subnets, IpamAssignment[] Assignments, IpamChange[] Changes);
+    public sealed record IpamSnapshot(int Version, long Revision, IpamView[] Views, IpamSubnet[] Subnets, IpamAssignment[] Assignments, IpamChange[] Changes, IpamProvisioning[] Provisioning = null, IpamDiscoverySource[] DiscoverySources = null, IpamDiscoveryRun[] DiscoveryRuns = null, IpamNetBoxReceipt[] NetBoxImports = null);
 
     // Address arithmetic never enumerates the address space, including IPv6 /64 networks.
     public sealed class IpamNetwork
@@ -64,8 +66,7 @@ namespace DnsServerCore.Ipam
     {
         public static long ScopeIdSafe(this IPAddress address) => address.GetAddressBytes().Length == 16 ? address.ScopeId : 0;
     }
-
-    public sealed class IpamManager
+    public sealed partial class IpamManager
     {
         readonly object _sync = new object();
         readonly string _path;
@@ -76,11 +77,12 @@ namespace DnsServerCore.Ipam
         {
             _path = path;
             _state = File.Exists(path) ? Parse(File.ReadAllBytes(path)) : new IpamSnapshot(1, 0, [new IpamView("default", "Default", "")], [], [], []);
+            RetireInterruptedDiscovery();
         }
 
         public IpamSnapshot Snapshot()
         {
-            lock (_sync) return _state with { Views = _state.Views.ToArray(), Subnets = _state.Subnets.ToArray(), Assignments = _state.Assignments.ToArray(), Changes = _state.Changes.ToArray() };
+            lock (_sync) return _state with { Views = _state.Views.ToArray(), Subnets = _state.Subnets.ToArray(), Assignments = _state.Assignments.ToArray(), Changes = _state.Changes.ToArray(), Provisioning = (_state.Provisioning ?? []).ToArray(), DiscoverySources = (_state.DiscoverySources ?? []).ToArray(), DiscoveryRuns = (_state.DiscoveryRuns ?? []).Select(r => r with { Evidence = r.Evidence.ToArray() }).ToArray(), NetBoxImports = (_state.NetBoxImports ?? []).Select(r => r with { Objects = r.Objects.ToArray() }).ToArray() };
         }
 
         public byte[] Export() { lock (_sync) return JsonSerializer.SerializeToUtf8Bytes(_state, JsonOptions); }
@@ -124,6 +126,7 @@ namespace DnsServerCore.Ipam
                 foreach (var group in discoveredAddresses.GroupBy(a => Address(a.Address).ToString()).OrderBy(g => g.Key, StringComparer.Ordinal))
                 {
                     var ip = Address(group.Key);
+                    if ((_state.Provisioning ?? []).Any(p => HoldsAddress(p) && p.Subnet.ViewId == "default" && p.Intent.Address == group.Key)) continue;
                     var subnet = subnets.FirstOrDefault(s => s.ViewId == "default" && !s.Container && new IpamNetwork(s.Prefix).Contains(ip));
                     if (subnet is null || IpamNetwork.Number(ip) < new IpamNetwork(subnet.Prefix).FirstUsable || IpamNetwork.Number(ip) > new IpamNetwork(subnet.Prefix).LastUsable) continue;
                     if (assignments.Any(a => a.Address == group.Key && subnets.Any(s => s.Id == a.SubnetId && s.ViewId == "default"))) continue;
@@ -139,6 +142,7 @@ namespace DnsServerCore.Ipam
                 if (_state.Subnets.SequenceEqual(next.Subnets) && _state.Assignments.OrderBy(a => a.Id, StringComparer.Ordinal).SequenceEqual(next.Assignments)) return false;
                 long revision = checked(_state.Revision + 1);
                 next = next with { Revision = revision, Changes = _state.Changes.Append(new IpamChange(revision, DateTime.UtcNow, "DDI discovery", "discovery.sync", "", JsonSerializer.Serialize(new { _state.Subnets, _state.Assignments }, JsonOptions), JsonSerializer.Serialize(new { next.Subnets, next.Assignments }, JsonOptions))).ToArray() };
+                GuardDiscoveryParents(_state, next);
                 Validate(next);
                 Save(next);
                 _state = next;
@@ -147,8 +151,10 @@ namespace DnsServerCore.Ipam
         }
         public void Restore(byte[] data)
         {
-            IpamSnapshot state = Parse(data);
-            lock (_sync) { Save(state); _state = state; }
+            lock (_sync) if ((_state.Provisioning ?? []).Any(HoldsAddress) || (_state.DiscoveryRuns ?? []).Any(r => r.Status == "Running")) throw new InvalidOperationException("Resolve pending provisioning and stop active discovery before restoring inventory.");
+            IpamSnapshot state = RequireDiscoveryScopeReview(Parse(data));
+            state = state with { DiscoveryRuns = (state.DiscoveryRuns ?? []).Select(r => r.Status == "Running" ? r with { Status = "Interrupted", OutcomeReason = "Restore", Detail = "Saved in-flight collection was retired by restore. Last-known evidence retained; run again explicitly." } : r).ToArray() };
+            lock (_sync) { if ((_state.Provisioning ?? []).Any(HoldsAddress) || (_state.DiscoveryRuns ?? []).Any(r => r.Status == "Running")) throw new InvalidOperationException("Resolve pending provisioning and stop active discovery before restoring inventory."); Save(state); _state = state; }
         }
 
         static IpamSnapshot Parse(byte[] data)
@@ -182,6 +188,9 @@ namespace DnsServerCore.Ipam
                     if (!string.IsNullOrEmpty(subnet.DnsZone) && string.Equals(subnet.DnsZone, other.DnsZone, StringComparison.OrdinalIgnoreCase) && subnet.ViewId != other.ViewId) throw new ArgumentException("A DNS zone cannot identify overlapping network views.");
                 }
             }
+            ValidateProvisioning(state);
+            ValidateActiveDiscovery(state);
+            ValidateNetBoxImports(state);
             HashSet<string> assigned = [];
             HashSet<string> ids = [];
             foreach (IpamAssignment assignment in state.Assignments)
@@ -222,7 +231,16 @@ namespace DnsServerCore.Ipam
                 if (revision != _state.Revision) throw new InvalidOperationException("IPAM changed; refresh inventory and retry with the current revision.");
                 var next = change(_state);
                 long newRevision = checked(_state.Revision + 1);
-                IpamSnapshot updated = next.State with { Revision = newRevision, Changes = _state.Changes.Append(new IpamChange(newRevision, DateTime.UtcNow, Required(actor, "Actor"), operation, next.Id, ObjectJson(_state, next.Id), ObjectJson(next.State, next.Id))).ToArray() };
+                string before = ObjectJson(_state, next.Id);
+                if (operation == "assignment.delete" && _state.Assignments.SingleOrDefault(a => a.Id == next.Id) is { } deletedAssignment)
+                {
+                    var parent = _state.Subnets.Single(s => s.Id == deletedAssignment.SubnetId);
+                    var tombstone = JsonNode.Parse(before).AsObject();
+                    tombstone["parentSubnet"] = JsonSerializer.SerializeToNode(parent, JsonOptions);
+                    before = tombstone.ToJsonString(JsonOptions);
+                }
+                IpamSnapshot updated = next.State with { Revision = newRevision, Changes = _state.Changes.Append(new IpamChange(newRevision, DateTime.UtcNow, Required(actor, "Actor"), operation, next.Id, before, ObjectJson(next.State, next.Id))).ToArray() };
+                GuardDiscoveryParents(_state, updated);
                 Validate(updated);
                 Save(updated);
                 _state = updated;
@@ -232,13 +250,17 @@ namespace DnsServerCore.Ipam
 
         static string ObjectJson(IpamSnapshot state, string id)
         {
-            object entity = (object)state.Views.SingleOrDefault(v => v.Id == id) ?? (object)state.Subnets.SingleOrDefault(s => s.Id == id) ?? state.Assignments.SingleOrDefault(a => a.Id == id);
+            object entity = (object)state.Views.SingleOrDefault(v => v.Id == id) ?? (object)state.Subnets.SingleOrDefault(s => s.Id == id) ?? (object)state.Assignments.SingleOrDefault(a => a.Id == id) ?? (state.DiscoverySources ?? []).SingleOrDefault(a => a.Id == id);
             return entity is null ? null : JsonSerializer.Serialize(entity, entity.GetType(), JsonOptions);
         }
 
         void Save(IpamSnapshot state)
         {
+            GuardDiscoveryParents(_state, state);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path)));
+            using var writeLock = new FileStream(_path + ".write-lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            if (File.Exists(_path) && Parse(File.ReadAllBytes(_path)).Revision != _state.Revision)
+                throw new InvalidOperationException("Another inventory process changed the file. Restart this instance before writing.");
             string temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
@@ -297,7 +319,8 @@ namespace DnsServerCore.Ipam
             if (subnet.Container) throw new ArgumentException("Select a subnet rather than a container prefix.");
             IpamNetwork network = new IpamNetwork(subnet.Prefix);
             HashSet<BigInteger> occupied = state.Assignments.Where(a => a.SubnetId == subnetId).Select(a => IpamNetwork.Number(Address(a.Address))).ToHashSet();
-            foreach (string address in observedAddresses)
+            foreach (var claim in (state.Provisioning ?? []).Where(p => HoldsAddress(p) && p.Subnet.ViewId == subnet.ViewId)) occupied.Add(IpamNetwork.Number(Address(claim.Intent.Address)));
+            foreach (string address in observedAddresses.Concat(DiscoveryEvidence(subnetId, false).Select(e => e.Address)))
                 if (IPAddress.TryParse(address, out IPAddress ip) && network.Contains(ip)) occupied.Add(IpamNetwork.Number(ip));
             var intervals = occupied.Select(n => (Start: n, End: n)).ToList();
             foreach (var range in excludedRanges ?? [])
@@ -325,9 +348,10 @@ namespace DnsServerCore.Ipam
                 else if (!string.IsNullOrEmpty(assignment.HostName) && group.Any(o => !string.IsNullOrEmpty(o.HostName) && !string.Equals(o.HostName.TrimEnd('.'), assignment.HostName.TrimEnd('.'), StringComparison.OrdinalIgnoreCase)))
                     findings.Add(new IpamFinding(group.Key, "HostNameDrift", "Observed hostname differs from intended hostname."));
                 if (group.Where(o => o.Source == "DhcpLease").Select(o => o.ClientIdentifier).Distinct().Count() > 1) findings.Add(new IpamFinding(group.Key, "DuplicateLease", "Multiple DHCP client identifiers use this address."));
+                if (group.Where(o => o.Source == "SnmpArp").Select(o => o.ClientIdentifier).Where(x => !string.IsNullOrEmpty(x)).Distinct().Count() > 1) findings.Add(new IpamFinding(group.Key, "DiscoveryConflict", "Devices report different hardware addresses. Review each source before allocation."));
                 intended.Remove(group.Key);
             }
-            findings.AddRange(intended.Values.Select(a => new IpamFinding(a.Address, "Unobserved", "Assignment exists without current DNS or DHCP evidence; this does not prove the device is offline.")));
+            findings.AddRange(intended.Values.Select(a => new IpamFinding(a.Address, "Unobserved", "Assignment exists without current observations; this does not prove the device is offline.")));
             return findings.ToArray();
         }
     }

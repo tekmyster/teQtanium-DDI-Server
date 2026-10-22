@@ -59,7 +59,7 @@ static class MigrationChecks
             Check((await Call(source.Client, "/api/ipam/subnets/set", ("revision", sourceInventory.GetProperty("revision").GetInt64().ToString()), ("id", discoveredSubnetId), ("prefix", "192.0.2.0/24"), ("name", "Transferred network"))).GetProperty("status").GetString() == "ok", "Source IPAM intent setup failed");
             var originalLease = (await Call(source.Client, "/api/dhcp/leases/list")).GetProperty("response").GetProperty("leases")[0];
             var sourcePolicy = JsonSerializer.Deserialize<SecurityPolicy>((await Call(source.Client, "/api/security/policy/get")).GetProperty("response").GetProperty("policy").GetRawText(), DdiSecurityManager.JsonOptions);
-            sourcePolicy = sourcePolicy with { Indicators = [new ThreatIndicator("migration-ioc", "Domain", "bad.portable.example", "Block", "Migration test")], Misp = new MispSettings(false, "https://misp.migration.test/") };
+            sourcePolicy = sourcePolicy with { Indicators = [new ThreatIndicator("migration-ioc", "Domain", "bad.portable.example", "Block", "Migration test")], Misp = new MispSettings(false, "https://misp.migration.test/"), EdlFeeds = [new("private", "Network", "https://private.migration.test/list.txt", ApiKeyEnvironment: "DDI_EDL_PRIVATE_API_KEY")], EdlPublications = [new("private", "Domain", [new("Migration test", "migration-ioc")], true)] };
             Check((await Call(source.Client, "/api/security/policy/set", ("revision", "0"), ("policy", JsonSerializer.Serialize(sourcePolicy, DdiSecurityManager.JsonOptions)))).GetProperty("status").GetString() == "ok", "Source policy setup failed");
             using var export = await source.Client.GetAsync("/api/settings/migration/export"); byte[] package = await export.Content.ReadAsByteArrayAsync();
             Check(export.Content.Headers.ContentType.MediaType == "application/zip", "Migration export did not return ZIP: " + (export.Content.Headers.ContentType.MediaType == "application/zip" ? "" : System.Text.Encoding.UTF8.GetString(package)));
@@ -126,6 +126,7 @@ static class MigrationChecks
             Check(importedLease.GetRawText() == originalLease.GetRawText(), "Lease snapshot identity or expiration changed");
             var importedPolicy = (await Call(target.Client, "/api/security/policy/get")).GetProperty("response").GetProperty("policy");
             Check(!importedPolicy.GetProperty("misp").GetProperty("enabled").GetBoolean() && importedPolicy.GetProperty("misp").GetProperty("url").GetString() == "", "External enrichment activated or its source endpoint copied");
+            Check(importedPolicy.GetProperty("edlFeeds").GetArrayLength() == 0 && importedPolicy.GetProperty("edlPublications").GetArrayLength() == 0, "Private EDL connection or publication copied to new deployment");
             Check(importedPolicy.GetProperty("indicators").EnumerateArray().Any(x => x.GetProperty("id").GetString() == "migration-ioc"), "Security policy not transferred");
             var recordReply = await Call(target.Client, "/api/zones/records/get", ("domain", "host.portable.example"), ("zone", "portable.example"));
             Check(recordReply.GetProperty("status").GetString() == "ok", "Imported record read failed: " + recordReply);
@@ -137,7 +138,7 @@ static class MigrationChecks
             Check(login.GetProperty("status").GetString() == "ok", "Destination credential stopped working"); fresh.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.GetProperty("token").GetString());
             Check((await Call(fresh, "/api/settings/set", ("defaultRecordTtl", "600"))).GetProperty("status").GetString() == "ok", "Fresh administrative modification denied");
             Check(!(await Preview(fresh, package)).GetProperty("response").GetProperty("canImport").GetBoolean(), "Active deployment accepted migration");
-            Check((await Call(fresh, "/api/settings/migration/import", ("review", id))).GetProperty("status").GetString() != "ok", "Completed review replayed");
+            Check((await Call(fresh, "/api/settings/migration/import", ("review", id))).GetProperty("response").GetProperty("state").GetString() == "Committed", "Completed operation receipt was not rediscovered");
             var inventory = (await Call(fresh, "/api/ipam/list")).GetProperty("response").GetProperty("inventory");
             Check(inventory.GetProperty("subnets").EnumerateArray().Any(s => s.GetProperty("name").GetString() == "Transferred network" && s.GetProperty("prefix").GetString() == "192.0.2.0/24"), "IPAM intent not transferred");
             Console.WriteLine("Passed " + passed + " migration checks.");

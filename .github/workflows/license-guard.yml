@@ -1,4 +1,4 @@
-name: License boundary
+name: Community source boundary
 on:
   push:
   pull_request:
@@ -6,12 +6,14 @@ on:
 permissions:
   contents: read
 jobs:
-  license-guard:
+  community-source:
+    if: '!github.event.repository.private'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          # Provenance validation reads immutable ancestor blobs, not just HEAD.
           fetch-depth: 0
-      - name: Check reviewed community source and private exclusions
+      - name: Check eligible source and private exclusions
         shell: pwsh
-        run: ./scripts/check-public-license.ps1 -SourceOnly
+        run: ./scripts/check-public-license.ps1 -PublicationScope CommunitySource

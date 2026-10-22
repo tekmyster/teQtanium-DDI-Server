@@ -103,6 +103,9 @@ function HTTPRequest(url, method, data, isTextResponse, success, error, invalidT
     if (token != null)
         headers = { "Authorization": "Bearer " + token };
 
+    // Optional presentation guard: stale authenticated requests must not render alerts,
+    // loaders, data or invalid-session redirects into a later UI session.
+    var isCurrent = typeof arguments[0] === 'object' ? arguments[0].isCurrent : null;
     var successFlag = false;
 
     $.ajax({
@@ -116,6 +119,7 @@ function HTTPRequest(url, method, data, isTextResponse, success, error, invalidT
         processData: processData,
         contentType: contentType,
         success: function (response, status, jqXHR) {
+            if (isCurrent && !isCurrent()) return;
             if (objLoaderPlaceholder != null)
                 objLoaderPlaceholder.html("");
 
@@ -180,6 +184,7 @@ function HTTPRequest(url, method, data, isTextResponse, success, error, invalidT
             }
         },
         error: function (jqXHR, textStatus, errorThrown) {
+            if (isCurrent && !isCurrent()) return;
             if (objLoaderPlaceholder != null)
                 objLoaderPlaceholder.html("");
 
