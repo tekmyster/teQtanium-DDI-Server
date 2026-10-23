@@ -37,15 +37,17 @@ Before declaring a UI implementation complete, inspect affected screens and fix:
 
 Report any screens, states or paths that could not be inspected or executed. Keep summaries concise, focused on changes and material unresolved issues, and distinguish verified behavior from assumptions.
 
+Current feature-specific acceptance and omitted states are recorded in [dated status](DEPLOYMENT-STATUS.md). A historical full-section inspection does not cover every state introduced by subsequent changes.
+
 The end user should experience a polished product, not the technical process used to generate it. Optimize for simplicity without sacrificing correctness, safety, accessibility or function.
 
-## Current implementation and verification
+## Implementation and historical verification scopes
 
-The contract applies through root `AGENTS.md`. `www/js/product-ux.js` centralizes readable values, DNS record views, accessible dynamic controls, table scrolling, unclipped action menus, dialog naming and focus. The console shell and dialogs adapt to narrow widths. Main, dark and amber styles preserve the existing components while improving text contrast; dashboard chart labels follow the theme.
+The contract applies through root `AGENTS.md`. `DnsServerCore/www/js/product-ux.js` centralizes readable values, DNS record views, accessible dynamic controls, table scrolling, unclipped action menus, dialog naming and focus. The console shell and dialogs adapt to narrow widths. Main, dark and amber styles preserve the existing components while improving text contrast; dashboard chart labels follow the theme.
 
 Security leads with recent events, presents structured indicator/device/score evidence, and keeps raw events under Developer data. Investigations select events by time and domain, while an advanced event-reference option retains external-reference entry. IPAM leads with inventory; editing, history and NetBox configuration use disclosure. DNS tools, cache and filtering record views show structured records with optional developer data. Unsupported record fields remain available in that developer view. Third-party application configuration retains its original editor under Developer configuration rather than inventing unknown application schemas. The public DNS setup page uses concise instructions.
 
-Verification for this pass:
+Historical verification for the original UX pass (not a new run or current deployment acceptance):
 
 - All 14 main sections were inspected: Dashboard, Zones, Cache, Allowed, Blocked, Apps, DNS Client, Settings, DHCP, IPAM, Security, Administration, Logs and About.
 - The primary sections, all nine Settings tabs and seven Administration tabs were checked at a 390-pixel viewport for page overflow and accessible form labels. The checked views had no page-level horizontal overflow or unnamed visible form inputs.

@@ -19,29 +19,39 @@ namespace DnsServerCore.Security
             if (values is null || values.Length > 25) throw new InvalidDataException("Invalid policy history.");
             return values.Select(p => ParsePolicy(JsonSerializer.SerializeToUtf8Bytes(p, JsonOptions))).ToArray();
         }
-        void SavePolicyHistory(SecurityPolicy next)
+        // Caller holds _persistence. Prepared higher revisions are not retained until active replacement.
+        SecurityPolicy[] LoadRetainedPolicyHistory()
+        {
+            long activeRevision = ReadPolicy().Revision;
+            return LoadPolicyHistory().Where(p => p.Revision <= activeRevision).ToArray();
+        }
+        void SavePolicyHistory(SecurityPolicy next, Action authorizeCommit = null)
         {
             var current = ReadPolicy();
-            Save("security-policy-history.json", LoadPolicyHistory().Where(p => p.Revision != current.Revision && p.Revision != next.Revision).Append(current).Append(next).TakeLast(25).ToArray());
+            Save("security-policy-history.json", LoadRetainedPolicyHistory().Where(p => p.Revision != current.Revision && p.Revision != next.Revision).Append(current).Append(next).TakeLast(25).ToArray(), authorizeCommit);
         }
         public SecurityPolicy[] PolicyHistory()
-        { lock (_persistence) return LoadPolicyHistory().Select(p => p with { Indicators = p.Indicators.ToArray() }).ToArray(); }
+        { using (_persistence.Enter()) return LoadRetainedPolicyHistory().Select(p => p with { Indicators = p.Indicators.ToArray() }).ToArray(); }
         public SecurityDisposition[] Dispositions()
         {
-            lock (_persistence)
+            using (_persistence.Enter())
             {
-                string file = Path.Combine(_folder, "security-dispositions.json");
-                return File.Exists(file) ? JsonSerializer.Deserialize<SecurityDisposition[]>(File.ReadAllBytes(file), JsonOptions) ?? [] : [];
+                return LoadDispositions();
             }
+        }
+        SecurityDisposition[] LoadDispositions()
+        {
+            string file = Path.Combine(_folder, "security-dispositions.json");
+            return File.Exists(file) ? JsonSerializer.Deserialize<SecurityDisposition[]>(File.ReadAllBytes(file), JsonOptions) ?? [] : [];
         }
         public SecurityDisposition SetDisposition(string eventId, string status, string notes, string actor)
         {
             if (!Guid.TryParse(eventId, out _) || status != "Investigating" && status != "Confirmed" && status != "FalsePositive" && status != "Resolved" || notes?.Length > 2048 || string.IsNullOrWhiteSpace(actor) || actor.Length > 255) throw new ArgumentException("Invalid analyst disposition.");
             eventId = Guid.Parse(eventId).ToString("N");
-            lock (_persistence)
+            using (_persistence.Enter())
             {
                 var next = new SecurityDisposition(eventId, status, notes ?? "", actor, DateTime.UtcNow);
-                Save("security-dispositions.json", Dispositions().Where(d => d.EventId != eventId).Append(next).TakeLast(5000).ToArray()); return next;
+                Save("security-dispositions.json", LoadDispositions().Where(d => d.EventId != eventId).Append(next).TakeLast(5000).ToArray()); return next;
             }
         }
         public async Task<SecuritySearch> SearchEventsAsync(DateTime from, DateTime to, string client = "", string query = "", int limit = 200, CancellationToken cancellationToken = default)

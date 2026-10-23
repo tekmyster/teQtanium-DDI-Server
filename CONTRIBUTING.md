@@ -16,3 +16,5 @@ By submitting a contribution, you confirm that:
 - You are the original author of the work, or you have the right to submit it.
 - You grant the project owner full rights to use, modify, and redistribute your contribution.
 - You understand that copyright/IPR for your contribution is transferred to the project owner.
+
+The contribution and alternative-licensing language above does not transfer upstream or third-party copyrights, revoke existing GPL grants, or establish a right to relicense GPL-derived work. Preserve original notices and follow [license boundaries](docs/LICENSE-BOUNDARIES.md). Commercial path names and private headers do not establish legal independence.

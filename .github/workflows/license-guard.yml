@@ -1,4 +1,4 @@
-name: License boundary
+name: Community source boundary
 on:
   push:
   pull_request:
@@ -6,25 +6,14 @@ on:
 permissions:
   contents: read
 jobs:
-  license-guard:
+  community-source:
+    if: '!github.event.repository.private'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Check reserved commercial paths
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import pathlib, subprocess
-          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
-          failures = []
-          for path in filter(None, paths):
-              parts = pathlib.PurePosixPath(path).parts
-              private = parts[0].startswith(('Tectanium.', 'teQtanium.')) or (len(parts) > 1 and parts[0] == 'Apps' and parts[1].startswith(('Tectanium.', 'teQtanium.')))
-              if private and b'GNU General Public License' in pathlib.Path(path).read_bytes():
-                  failures.append(path)
-          if failures:
-              for path in failures:
-                  print('::error file=' + path + '::GPL notice found in a reserved commercial path. Preserve the notice and resolve file provenance or location; do not strip GPL text to pass this check.')
-              raise SystemExit(1)
-          print('License boundary check passed.')
-          PY
+        with:
+          # Provenance validation reads immutable ancestor blobs, not just HEAD.
+          fetch-depth: 0
+      - name: Check eligible source and private exclusions
+        shell: pwsh
+        run: ./scripts/check-public-license.ps1 -PublicationScope CommunitySource

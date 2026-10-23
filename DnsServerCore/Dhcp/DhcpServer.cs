@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -67,6 +67,7 @@ namespace DnsServerCore.Dhcp
         readonly string _scopesFolder;
         public Security.DdiSecurityManager SecurityManager { get; set; }
         public DistributedAllocation Allocation { get; set; }
+        internal Func<string, IPAddress, bool> ProvisioningAddressHeld { get; set; }
         public Func<string, string, Task<byte[]>> BorrowCapacity { get; set; }
         readonly LogManager _log;
 
@@ -443,7 +444,7 @@ namespace DnsServerCore.Dhcp
                                 }
                             }
 
-                            if ((leaseOffer.Type == LeaseType.Dynamic) && (scope.IsAddressExcluded(leaseOffer.Address) || scope.IsAddressReserved(leaseOffer.Address)))
+                            if ((leaseOffer.Type == LeaseType.Dynamic) && (scope.IsAddressExcluded(leaseOffer.Address) || scope.IsAddressReserved(leaseOffer.Address)) && !scope.HasRetainedBinding(leaseOffer.Address, leaseOffer.ClientIdentifier.ToString()))
                             {
                                 //client ip is excluded/reserved for dynamic allocations
                                 scope.ReleaseLease(leaseOffer);
@@ -454,7 +455,7 @@ namespace DnsServerCore.Dhcp
                             Lease reservedLease = scope.GetReservedLease(request);
                             if (reservedLease == null)
                             {
-                                if (leaseOffer.Type == LeaseType.Reserved)
+                                if (leaseOffer.Type == LeaseType.Reserved && !scope.HasRetainedBinding(leaseOffer.Address, leaseOffer.ClientIdentifier.ToString()))
                                 {
                                     //client's reserved lease has been removed so release the current lease and send NAK to allow it to get new allocation
                                     scope.ReleaseLease(leaseOffer);
@@ -464,7 +465,7 @@ namespace DnsServerCore.Dhcp
                             }
                             else
                             {
-                                if (!reservedLease.Address.Equals(leaseOffer.Address))
+                                if (!reservedLease.Address.Equals(leaseOffer.Address) && !scope.HasRetainedBinding(leaseOffer.Address, leaseOffer.ClientIdentifier.ToString()))
                                 {
                                     //client has a new reserved lease so release the current lease and send NAK to allow it to get new allocation
                                     scope.ReleaseLease(leaseOffer);
@@ -715,7 +716,7 @@ namespace DnsServerCore.Dhcp
                     {
                         Scope scope = entry.Value;
 
-                        if (scope.Enabled && scope.IsAddressInRange(request.ClientIpAddress))
+                        if (scope.Enabled && (scope.IsAddressInRange(request.ClientIpAddress) || scope.HasRetainedBinding(request.ClientIpAddress, request.GetClientIdentifier(scope.IgnoreClientIdentifierOption).ToString())))
                             return scope;
                     }
 
@@ -1353,9 +1354,10 @@ namespace DnsServerCore.Dhcp
                 _log.Write("DHCP Server failed to load scope file: " + scopeFile, ex);
             }
         }
-
-        private void SaveScopeFile(Scope scope)
+        private void SaveScopeFile(Scope scope, bool throwOnError = false)
         {
+            lock (_provisioningSaveSync)
+            {
             string tmpScopeFile = Path.Combine(_scopesFolder, scope.Name + ".tmp");
             string scopeFile = Path.Combine(_scopesFolder, scope.Name + ".scope");
 
@@ -1364,6 +1366,7 @@ namespace DnsServerCore.Dhcp
                 using (FileStream fS = new FileStream(tmpScopeFile, FileMode.Create, FileAccess.Write))
                 {
                     scope.WriteTo(fS);
+                    fS.Flush(true);
                 }
 
                 File.Move(tmpScopeFile, scopeFile, true);
@@ -1373,6 +1376,8 @@ namespace DnsServerCore.Dhcp
             catch (Exception ex)
             {
                 _log.Write("DHCP Server failed to save scope file: " + scopeFile, ex);
+                if (throwOnError) throw;
+            }
             }
         }
 
@@ -1584,11 +1589,32 @@ namespace DnsServerCore.Dhcp
 
             return false;
         }
+        // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+        readonly object _provisioningSaveSync = new object();
+        internal Scope SaveProvisionedScope(string name)
+        {
+            lock (_provisioningSaveSync)
+            {
+                var scope = GetScope(name) ?? throw new InvalidOperationException("DHCP scope disappeared.");
+                SaveScopeFile(scope, true);
+                if (!ReferenceEquals(GetScope(name), scope)) throw new InvalidOperationException("DHCP scope was replaced during persistence.");
+                using var file = File.OpenRead(Path.Combine(_scopesFolder, name + ".scope"));
+                return new Scope(file, _log, this);
+            }
+        }
 
         public void SaveScope(string name)
         {
             if (_scopes.TryGetValue(name, out Scope scope))
                 SaveScopeFile(scope);
+        }
+        internal Scope ReadPersistedAllocationScope(string name)
+        {
+            lock (_provisioningSaveSync)
+            {
+                using var file = File.OpenRead(Path.Combine(_scopesFolder, name + ".scope"));
+                return new Scope(file, _log, this);
+            }
         }
 
         public IDictionary<string, string> GetAddressHostNameMap()

@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -145,7 +145,7 @@ namespace DnsServerCore.Dhcp
 
         internal void SetHostName(string hostName)
         {
-            _hostName = hostName;
+            lock (this) _hostName = hostName;
         }
 
         #endregion
@@ -218,7 +218,7 @@ namespace DnsServerCore.Dhcp
         public string Comments
         {
             get { return _comments; }
-            set { _comments = value; }
+            set { lock (this) _comments = value; }
         }
 
         public DateTime LeaseObtained

@@ -63,7 +63,7 @@ namespace DnsServerCore
 
             #region private
 
-            private void WriteDnsSettings(Utf8JsonWriter jsonWriter)
+            internal void WriteDnsSettings(Utf8JsonWriter jsonWriter)
             {
                 //info
                 jsonWriter.WriteString("version", _dnsWebService.GetServerVersion());

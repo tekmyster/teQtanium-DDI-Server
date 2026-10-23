@@ -53,13 +53,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
     <script src="js/apps.js"></script>
     <script src="js/dnsclient.js"></script>
     <script src="js/dhcp.js"></script>
-    <script src="js/ipam.js"></script>
-    <script src="js/security.js?v=0.1.0-alpha.4"></script>
+    <script src="js/ipam-manual.c1ab5aa345ec4d7f.js"></script>
+    <script src="js/security.js?v=security-config-8978843843837b01"></script>
     <script src="js/ddi.js"></script>
     <script src="js/logs.js"></script>
     <script src="js/syslog.js?v=0.1.0-alpha.4"></script>
     <script src="js/product-ux.js"></script>
     <script src="js/migration.js"></script>
+    <script src="js/dashboard-operations.js"></script>
+    <link rel="stylesheet" href="css/dashboard-operations.css" />
 </head>
 <body>
     <div id="header">
@@ -172,6 +174,38 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
                             <div class="tab-content">
                                 <div id="mainPanelTabPaneDashboard" role="tabpanel" class="tab-pane active" style="padding: 10px 0 0 0;">
+                                    <section id="dashboardOperations" aria-labelledby="operationsHeading">
+                                        <h3 id="operationsHeading">Operations on this node</h3>
+                                        <p id="operationsScope" class="text-muted">Node-local snapshots; no cluster totals.</p>
+                                        <div class="operations-window">
+                                            <label for="operationsWindow">LLM time window</label>
+                                            <select id="operationsWindow" class="form-control" onchange="refreshOperations()"><option value="15">Last 15 minutes</option><option value="60" selected>Last hour</option></select>
+                                            <button type="button" class="btn btn-default" onclick="refreshOperations()">Refresh operations</button>
+                                        </div>
+                                        <p id="operationsStatus" role="status" aria-live="polite">Loading operational metrics…</p>
+                                        <div id="operationsBody" style="display:none">
+                                            <div id="operationsServices" class="row"></div>
+                                            <p id="operationsLlmRestricted" style="display:none">Model statistics require Settings view permission.</p>
+                                            <div id="operationsLlm">
+                                                <h4>Model usage and requests</h4>
+                                                <p id="operationsModelState"></p><p id="operationsModelLastSuccess" class="text-muted"></p>
+                                                <div id="operationsLlmCards" class="row"></div>
+                                                <p id="operationsLatency" title="Nearest-rank percentiles of successful connector calls, including connection setup and response reading. Busy, failed and canceled calls are excluded."></p>
+                                                <p id="operationsCoverage" class="text-muted"></p><p id="operationsRetention" class="text-muted"></p>
+                                                <p id="operationsCounterLimit" class="text-warning" style="display:none">A counter reached the exact reporting limit. Values are lower bounds.</p>
+                                                <p id="operationsEmpty"></p>
+                                                <div class="row">
+                                                    <div class="col-sm-6"><h5>Provider-reported tokens</h5><div class="operations-chart"><canvas id="operationsTokenChart" role="img" aria-label="Reported input and output tokens by minute. Equivalent values are in View minute totals."></canvas></div></div>
+                                                    <div class="col-sm-6"><h5>Request outcomes</h5><div class="operations-chart"><canvas id="operationsRequestChart" role="img" aria-label="Successful, failed, canceled, timed out and busy requests by minute. Equivalent values are in View minute totals."></canvas></div></div>
+                                                </div>
+                                                <p class="text-muted">Charts use 60-second bins relative to this snapshot. Gaps mean unavailable usage or unobserved intervals; the first observed bin may be partial.</p>
+                                                <details><summary>View minute totals</summary><div class="table-responsive"><table class="table table-condensed"><thead><tr><th>Bin start</th><th>Requests</th><th>Successful</th><th>Failed</th><th>Canceled</th><th>Timed out</th><th>Busy</th><th>Reported tokens</th><th>Usage reported</th><th>Usage unknown</th></tr></thead><tbody id="operationsTrendRows"></tbody></table></div></details>
+                                                <details><summary>Counters since this process started</summary><div id="operationsLifetime"></div></details>
+                                                <details><summary>Metric definitions</summary><p>Input, output and total tokens come only from valid provider usage fields. Missing or invalid usage is unavailable, with no estimates or cost calculation. Request counts include connector attempts, including local capacity rejection; API validation failures before the connector are excluded. Busy includes local rejection and provider rate limiting. Latency uses nearest-rank percentiles of successful calls, including connection setup and response reading. Settings and reachability are separate: a historical successful check does not establish current availability. These metrics describe this node's requests, not total GPU activity.</p></details>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    <h3>DNS traffic</h3>
                                     <div>
                                         <div class="pull-left">
                                             <div class="btn-group" data-toggle="buttons">
@@ -2522,14 +2556,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                     <h3>DDI security</h3>
                                     <p>Shared protection and device evidence across DNS, DHCP and IPAM.</p>
                                     <p id="securityRevision"></p><p id="securityHealth"></p><details><summary>Integration details</summary><p id="securityHealthDetails"></p></details>
-                                    <button class="btn btn-default" onclick="refreshSecurity();">Refresh security</button>
+                                    <div class="btn-toolbar" role="toolbar" aria-label="Security configuration">
+                                        <button id="securityManageLocalLists" class="btn btn-primary" type="button" onclick="securityOpenConfiguration('securityLocalLists', 'securityIndicatorKind');">Manage local lists</button>
+                                        <button class="btn btn-default" type="button" onclick="securityOpenConfiguration('securityProtectionSettings', 'securityTunnel_shortWindowMinutes');">DNS query settings</button>
+                                        <button class="btn btn-default" type="button" onclick="refreshSecurity();">Refresh security</button>
+                                    </div>
+                                    <p id="securityConfigAccess" role="status" aria-live="polite">Loading configuration access…</p>
+                                    <p id="securityPolicyLoadWarning" class="text-warning" role="status"></p>
                                     <h4>Recent DNS and DHCP security events</h4>
                                     <div class="table-responsive"><table class="table table-striped"><thead><tr><th>Time</th><th>Service</th><th>Client</th><th>Query</th><th>Action</th><th>Behavior score</th><th>Evidence</th></tr></thead><tbody id="securityEventsBody"></tbody></table></div>
                                     <div id="securityEvidence"></div>
 
-                                    <div class="security-edit">
-                                        <details><summary>Protection settings</summary>
-                                        <form onsubmit="saveSecuritySettings(); return false;">
+                                    <div class="security-configuration">
+                                        <details id="securityProtectionSettings"><summary>Protection and DNS query settings</summary>
+                                        <form id="securitySettingsForm" onsubmit="saveSecuritySettings(); return false;"><fieldset class="security-config-fields" disabled>
                                             <p><label><input id="securityEnabled" type="checkbox" /> Enable security module</label> <label><input id="securityAuthoritative" type="checkbox" /> Inspect locally authoritative answers</label></p>
                                             <div class="row">
                                                 <div class="col-sm-4"><label for="securityMode">Enforcement</label><select id="securityMode" class="form-control"><option>Monitor</option><option>Block</option></select></div>
@@ -2541,7 +2581,28 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                                 <div class="col-sm-6"><label for="securityDhcpResponse">DHCP response to device signals</label><select id="securityDhcpResponse" class="form-control"><option value="Observe">Observe</option><option value="DenyNewLeases">Withhold new leases</option></select></div>
                                             </div>
                                             <p>Response actions apply only in Block mode. Withholding new leases preserves existing lease renewals. Device attribution depends on current, unambiguous DHCP evidence.</p>
-                                            <h4>MISP enrichment</h4>
+                                            <details id="securityTunnelingControls" open><summary>DNS tunneling evidence</summary>
+                                                <p>Observes completed standard DNS queries while this module is enabled, grouped by client identity and registrable domain. Authoritative answers are excluded unless enabled above; transfers, multipart responses and explicit query exceptions are excluded.</p>
+                                                <p id="securityTunnelingEffective"></p>
+                                                <p>Fixed score contributions: long labels +20, high entropy +20, unique subdomains +25, query volume +15, TXT +10, NXDOMAIN +10. Without both lexical and changing-subdomain evidence, priority is capped at 49. The alert threshold decides when evidence creates an event.</p>
+                                                <p>Possible tunneling evidence is not confirmed exfiltration or measured detection accuracy. Legitimate software can show these patterns. DGA and periodic-DNS gates and predictive-model features remain fixed.</p>
+                                                <div class="row"><div class="col-sm-4 form-group"><label for="securityTunnel_shortWindowMinutes">Short window (minutes)</label><input id="securityTunnel_shortWindowMinutes" class="form-control" type="number" min="1" max="15" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_longWindowMinutes">Long window (minutes)</label><input id="securityTunnel_longWindowMinutes" class="form-control" type="number" min="15" max="60" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_minimumSamples">Minimum sampled queries</label><input id="securityTunnel_minimumSamples" class="form-control" type="number" min="10" max="512" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_longLabelLength">Long label length (characters)</label><input id="securityTunnel_longLabelLength" class="form-control" type="number" min="8" max="63" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_entropyMinimumLength">Minimum entropy label length</label><input id="securityTunnel_entropyMinimumLength" class="form-control" type="number" min="8" max="63" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_entropyThreshold">Label entropy (bits / character)</label><input id="securityTunnel_entropyThreshold" class="form-control" type="number" min="1" max="6" step="0.1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_minimumUniqueSubdomains">Minimum unique subdomains</label><input id="securityTunnel_minimumUniqueSubdomains" class="form-control" type="number" min="2" max="512" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_noveltyRatio">Unique subdomain ratio</label><input id="securityTunnel_noveltyRatio" class="form-control" type="number" min="0.1" max="1" step="0.01" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_lexicalRatio">Long or high-entropy label ratio</label><input id="securityTunnel_lexicalRatio" class="form-control" type="number" min="0.1" max="1" step="0.01" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_shortWindowVolume">Short window query volume</label><input id="securityTunnel_shortWindowVolume" class="form-control" type="number" min="10" max="512" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_longWindowVolume">Long window query volume</label><input id="securityTunnel_longWindowVolume" class="form-control" type="number" min="10" max="512" step="1" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_txtRatio">TXT query ratio</label><input id="securityTunnel_txtRatio" class="form-control" type="number" min="0.1" max="1" step="0.01" required /></div>
+<div class="col-sm-4 form-group"><label for="securityTunnel_nxDomainRatio">NXDOMAIN response ratio</label><input id="securityTunnel_nxDomainRatio" class="form-control" type="number" min="0.1" max="1" step="0.01" required /></div></div>
+                                                <p>Ratios range from 0.10 to 1.00 (0.50 means 50%). Long window must exceed short window; each volume gate must be at least the minimum sample count. Settings apply after saving; the next observation clears all previous analyzer windows (including DGA and periodic DNS) if tunneling settings changed. Windows also start empty after restart.</p>
+                                                <p>Evidence retains at most 512 samples per stream for one hour, with at most 4,096 client streams and 4,096 client/domain streams. Volume counts sampled queries, not total traffic; a truncated window is marked sample-limited. Query payloads are replaced by fixed-size fingerprints.</p>
+                                            </details>
+                                            <h4>Feed ingestion · MISP enrichment</h4>
                                             <p><label><input id="securityMispEnabled" type="checkbox" /> Enable background MISP enrichment</label></p>
                                             <div class="row">
                                                 <div class="col-sm-6"><label for="securityMispUrl">MISP HTTPS URL</label><input id="securityMispUrl" class="form-control" placeholder="https://misp.example/" /></div>
@@ -2563,14 +2624,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                                 </div>
                                                 <p><label><input id="securityLlmRemote" type="checkbox" /> Allow a network endpoint</label></p>
                                                 <p><label><input id="securityLlmDomains" type="checkbox" /> Include registered domains in analysis</label></p>
+                                                <p><button id="securityLlmTest" class="btn btn-default" type="button" onclick="securityTestModel()">Test connection</button> <button id="securityLlmCancel" class="btn btn-default" type="button" style="display:none" onclick="securityCancelModelTest()">Cancel test</button></p>
+                                                <p class="help-block">Test sends a fixed, benign question using the fields above. It does not send event data or save settings.</p>
+                                                <div id="securityLlmTestStatus" role="status" aria-live="polite"></div>
                                                 <p class="help-block">Analysis sends selected event evidence to the configured model when requested. Client addresses, hardware addresses and full query names are omitted. Network endpoints require HTTPS. Model explanations do not change protection.</p>
                                             </details>
-                                            <button class="btn btn-primary" type="submit">Save settings</button>
+                                            <button id="securitySaveSettings" class="btn btn-primary" type="submit">Save settings</button></fieldset>
                                         </form>
-                                        </details><details><summary>Add indicators or exceptions</summary>
-                                        <form onsubmit="addSecurityIndicators(); return false;">
+                                        </details><details id="securityLocalLists" open><summary>Local indicator lists and exceptions</summary>
+                                        <p>Paste exact domains, domain suffixes or IP networks below. These are manually maintained local lists. Feed ingestion and EDL publication are separate integrations; adding values here does not fetch a feed or publish a list.</p>
+                                        <form id="securityIndicatorsForm" onsubmit="addSecurityIndicators(); return false;"><fieldset class="security-config-fields" disabled>
                                             <div class="row">
-                                                <div class="col-sm-4"><label for="securityIndicatorKind">Indicator type</label><select id="securityIndicatorKind" class="form-control"><option value="Domain">Exact domain</option><option value="DomainSuffix">Domain and subdomains</option><option value="Network">IP address or network</option><option value="Url">URL evidence only</option></select></div>
+                                                <div class="col-sm-4"><label for="securityIndicatorKind">Indicator type</label><select id="securityIndicatorKind" class="form-control" onchange="securityIndicatorTypeHelp();"><option value="Domain">Exact domain</option><option value="DomainSuffix">Domain and subdomains</option><option value="Network">IP address or network</option><option value="Url">URL evidence only</option></select></div>
                                                 <div class="col-sm-4"><label for="securityIndicatorAction">Action</label><select id="securityIndicatorAction" class="form-control"><option>Monitor</option><option>Block</option><option>Allow</option></select></div>
                                                 <div class="col-sm-4"><label for="securityIndicatorSource">Source</label><input id="securityIndicatorSource" class="form-control" value="Local" required /></div>
                                             </div>
@@ -2579,12 +2644,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                                 <div class="col-sm-4"><label for="securityIndicatorClient">Client network</label><input id="securityIndicatorClient" class="form-control" placeholder="All clients, or 192.0.2.0/24" /></div>
                                                 <div class="col-sm-4"><label for="securityIndicatorExpiry">Expiry</label><input id="securityIndicatorExpiry" class="form-control" type="datetime-local" /></div>
                                             </div>
-                                            <label for="securityIndicatorValues">One value per line</label><textarea id="securityIndicatorValues" class="form-control" rows="4" required></textarea>
-                                            <p>URL paths are retained as evidence and do not block a hostname. Query-name exceptions affect this module; existing DNS blocking rules still apply.</p>
-                                            <button class="btn btn-primary" type="submit">Add indicators</button>
+                                            <label for="securityIndicatorValues">Values · one per line</label><textarea id="securityIndicatorValues" class="form-control" rows="5" maxlength="262144" placeholder="example.test&#10;another.test" aria-describedby="securityIndicatorHelp" required></textarea>
+                                            <p id="securityIndicatorHelp">Exact domain matches only that DNS name. Omit wildcards, schemes, paths and ports.</p>
+                                            <p>One value per line; blank lines and # comments are ignored. Every row must be valid or nothing is saved.</p>
+                                            <details><summary>Batch limits and exception behavior</summary><p>Up to 1,000 new rows / 256 KiB per paste; up to 10,000 local indicators and 2 MiB per policy. Existing saved rows are retained. New or changed rows cannot duplicate the same value, action, source and client scope. An Allow rule is a query exception; existing resolver blocking still applies. Expiry uses your local time.</p></details>
+                                            <button class="btn btn-primary" type="submit">Add local indicators</button></fieldset>
                                         </form></details>
                                     </div>
-                                    <h4>Threat indicators</h4>
+                                    <h4>Local threat indicators</h4><p id="securityIndicatorCount"></p><p><button id="securityIndicatorPrevious" class="btn btn-default" type="button" onclick="securityIndicatorPage--; securityRenderIndicators();">Previous 100</button> <button id="securityIndicatorNext" class="btn btn-default" type="button" onclick="securityIndicatorPage++; securityRenderIndicators();">Next 100</button></p>
                                     <div class="table-responsive"><table class="table table-striped"><thead><tr><th>Type</th><th>Value</th><th>Action</th><th>Source</th><th>Confidence</th><th>Clients</th><th>Expiry</th><th>Actions</th></tr></thead><tbody id="securityIndicatorsBody"></tbody></table></div>
                                     <details><summary>Test policy</summary>
                                     <form onsubmit="simulateSecurity(); return false;">
@@ -2625,15 +2692,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
                                     <h3>IP address management</h3>
                                     <p>Track networks, allocations and DNS/DHCP usage.</p>
                                     <p id="ipamRevision"></p>
+                                    <button id="ipamAddSubnet" class="btn btn-primary ipam-edit" style="display:none;" onclick="ipamNew('subnet');">Add subnet</button>
                                     <button class="btn btn-default" onclick="refreshIpam();">Refresh inventory</button>
                                     <details id="ipamNetworkEditor" class="ipam-edit"><summary>Add or edit networks</summary>
-                                        <h4>Network view</h4>
+                                        <details><summary>Network views</summary>
                                         <form class="form-inline" onsubmit="ipamSave('view'); return false;">
                                             <label>Name <input id="ipamViewName" class="form-control" required maxlength="255" /></label>
                                             <label>Description <input id="ipamViewDescription" class="form-control" /></label>
                                             <button class="btn btn-primary" type="submit">Add view</button>
                                         </form>
-                                        <h4>Subnet or container</h4>
+                                        </details>
+                                        <h4 id="ipamSubnetEditorHeading">Add subnet</h4>
+                                        <p>Record an IPv4 or IPv6 network using its confirmed CIDR mask. This adds IPAM inventory; it does not configure DHCP, DNS or a network device.</p>
                                         <form onsubmit="ipamSave('subnet'); return false;">
                                             <input type="hidden" id="ipamSubnetId" />
                                             <div class="row">

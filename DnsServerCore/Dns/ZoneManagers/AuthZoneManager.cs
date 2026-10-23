@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -254,6 +254,7 @@ namespace DnsServerCore.Dns.ZoneManagers
             using (FileStream fS = new FileStream(tmpZoneFile, FileMode.Create, FileAccess.Write))
             {
                 WriteZoneTo(zoneName, fS);
+                fS.Flush(true);
 
                 if (fS.Position == 0)
                 {
@@ -2282,6 +2283,39 @@ namespace DnsServerCore.Dns.ZoneManagers
                 return authZone.Entries;
 
             return new Dictionary<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>>(1);
+        }
+        // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+        internal bool IsProvisioningAuthority(string zoneName, string hostName)
+        {
+            _ = _root.FindZone(hostName, out _, out SubDomainZone delegation, out ApexZone apex, out _);
+            return delegation is null && apex is not null && ReferenceEquals(apex, GetAuthZoneInfo(zoneName)?.ApexZone);
+        }
+        internal bool ProvisionAddress(string zoneName, DnsResourceRecord record, string marker, bool remove)
+        {
+            ValidateIfDomainBelongsToZone(zoneName, record.Name);
+            if (!IsProvisioningAuthority(zoneName, record.Name)) throw new InvalidOperationException("DNS host is delegated or belongs to another local zone.");
+            var info = GetAuthZoneInfo(zoneName);
+            if (info?.ApexZone is not PrimaryZone primary || primary.Disabled || primary.DnssecStatus != AuthZoneDnssecStatus.Unsigned)
+                throw new InvalidOperationException("Provisioning requires an enabled local unsigned primary DNS zone.");
+            if (remove && !_root.TryGet(zoneName, record.Name, out _)) return true;
+            var authZone = GetOrAddSubDomainZone(zoneName, record.Name);
+            bool existed = authZone.GetRecords(record.Type).Count != 0;
+            if (!authZone.TryProvisionAddress(record, marker, remove)) return false;
+            if (remove && existed) primary.CommitAndIncrementSerial(new DnsResourceRecord[] { record });
+            else if (!remove && !existed) primary.CommitAndIncrementSerial(null, new DnsResourceRecord[] { record });
+            if (!IsProvisioningAuthority(zoneName, record.Name) || !ReferenceEquals(GetAuthZoneInfo(zoneName)?.ApexZone, primary) || !_root.TryGet(zoneName, record.Name, out var currentZone) || !ReferenceEquals(currentZone, authZone))
+                throw new InvalidOperationException("DNS destination was removed or replaced. Reconcile this same operation.");
+            if (authZone is SubDomainZone sub) sub.AutoUpdateState();
+            primary.TriggerNotify();
+            lock (_saveLock)
+            {
+                SaveZoneFileInternal(zoneName);
+                using var expected = new MemoryStream();
+                WriteZoneTo(zoneName, expected);
+                if (!expected.ToArray().SequenceEqual(File.ReadAllBytes(Path.Combine(_dnsServer.ConfigFolder, "zones", zoneName + ".zone"))))
+                    throw new IOException("DNS persisted state differs from readback. Reconcile this same operation.");
+            }
+            return true;
         }
 
         public void SetRecords(string zoneName, IReadOnlyList<DnsResourceRecord> records)
