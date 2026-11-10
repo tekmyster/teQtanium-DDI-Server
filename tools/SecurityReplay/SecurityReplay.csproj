@@ -1,0 +1,18 @@
+<!-- Copyright (c) 2026 Tekmyster Industries, LLC. GPL-3.0; see ../../LICENSE. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestoreSources>$(MSBuildThisFileDirectory)offline-packages</RestoreSources>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Reference Include="DnsServerCore"><HintPath>$(DetectorRuntime)/DnsServerCore.dll</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="RequireDetector" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(DetectorRuntime)/DnsServerCore.dll')" Text="Set DetectorRuntime to the reviewed offline detector runtime directory." />
+  </Target>
+</Project>

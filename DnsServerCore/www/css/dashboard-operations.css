@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Modified by Tekmyster Industries, LLC — remains GPL-3.0. */
+#dashboardOperations { margin-bottom:24px; }
+#dashboardOperations .operations-value { font-size:24px; font-weight:600; overflow-wrap:anywhere; }
+#dashboardOperations .operations-card { min-height:160px; }
+#dashboardOperations p { overflow-wrap:anywhere; }
+#dashboardOperations .operations-chart { height:240px; position:relative; margin-bottom:20px; }
+#dashboardOperations .operations-window { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:12px 0; }
+#dashboardOperations .operations-window .form-control { width:auto; }
+@media(max-width:767px) { #dashboardOperations .operations-card { min-height:0; } #dashboardOperations .operations-value { font-size:22px; } }
+
+#dashboardOperations .ux-details { display:block; margin-top:12px; }
+#dashboardOperations .ux-details dd { margin:0 0 10px; }

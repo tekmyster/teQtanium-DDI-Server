@@ -40,3 +40,13 @@
 .dark-mode .stats-panel .cache-hit, .dark-mode .zone-stats-panel .stats-item { background: #3b3f43; }
 .dark-mode #header .title > a, .dark-mode #header .title > a:visited { color: #f2f3f4; }
 @media (max-width: 480px) { #header .title .text { font-size: 20px; } }
+/* NetBox review controls follow the console theme and stay usable in narrow tables. */
+#ddiNetBoxPanel label { display: block; margin-top: 8px; }
+#ddiNetBoxPanel input[type=checkbox] { margin-right: 6px; }
+#ddiNetBoxPanel fieldset { margin-top: 16px; }
+#ddiNetBoxPanel legend { color: inherit; font-size: 16px; padding-bottom: 5px; }
+#ddiNetBoxPanel button { margin-top: 6px; margin-bottom: 6px; }
+#ddiNetBoxPanel details { margin-top: 10px; }
+#ddiNetBoxPanel dt { margin-top: 6px; }
+#ddiNetBoxPanel dd { overflow-wrap: anywhere; }
+#ddiNetBoxPanel .table-responsive { max-width: 100%; }

@@ -1,10 +1,8 @@
-# teQtanium DDI Server — Free for Homelabs & Non-Profits
+# teQtanium DDI Server
 
-Open-source DNS, DHCP, IPAM + shared security evidence. Infoblox / BlueCat / EfficientIP functionality, free for homelabs and non-profits.
+DNS, IPv4 DHCP, IPv4/IPv6 IPAM and shared security evidence, developed as an alpha fork of Technitium DNS Server. Feature coverage and production qualification vary by workflow; vendor parity and enterprise HA are not established.
 
-Free forever for: homelabs, personal, education, 501(c)(3) non-profits (Free Enterprise Unlimited), small business <250 IPs & <5k qps.
-
-Business with 250+ IPs or need HA / MISP / SSO / SLA? → Enterprise (paid) — non-profits still free.
+The GPL-covered application retains its GPL permissions for all users. Commercial offering terms apply only to separately licensable private components or services; a feature name does not establish a paid gate. See [license and edition policy](LICENSE.md).
 
 Built by Tekmyster Industries, LLC. Fork of Technitium DNS Server — original copyright retained. See LICENSE.md.
 
@@ -14,7 +12,7 @@ Built by Tekmyster Industries, LLC. Fork of Technitium DNS Server — original c
 
 <img src="docs/branding/teqtanium-original.svg" alt="teQtanium logo" width="96" height="96" />
 
-## Downloads
+## Package formats
 
 | Platform | Package |
 | --- | --- |
@@ -23,7 +21,7 @@ Built by Tekmyster Industries, LLC. Fork of Technitium DNS Server — original c
 | Windows / Linux / macOS / Raspberry Pi | Portable ZIP or tar.gz; requires the .NET 10 ASP.NET Core Runtime |
 | Docker | Loadable Linux x64 image archive and Compose example |
 
-Release downloads include SHA256SUMS. The installers use separate teQtanium services and configuration directories, generate an initial admin credential, and leave host DNS and firewall settings unchanged. Windows setup is unsigned. Existing deployments require the [backup and migration workflow](docs/BACKUP-MIGRATION.md); the alpha installers do not replace them automatically.
+The packaging scripts describe the formats below; this table is not a claim that current public downloads are available. Public binary releases remain held. Locally prepared release candidates include SHA256SUMS. The installers use separate teQtanium services and configuration directories, generate an initial admin credential, and leave host DNS and firewall settings unchanged. Windows setup is unsigned. Existing deployments require the [backup and migration workflow](docs/BACKUP-MIGRATION.md); the alpha installers do not replace them automatically.
 
 ## Console
 
@@ -40,16 +38,16 @@ The screenshots below show an isolated demonstration with example data.
 ## Capabilities
 
 - Authoritative and recursive DNS, DNSSEC and encrypted DNS transports.
-- Distributed IPv4 DHCP allocation and synchronization across multiple owners, with durable offers/leases and fenced recovery in the Hyper-V lab.
+- Distributed IPv4 DHCP allocation across stable owners, with durable offers/leases. The latest synchronization parser repair is locally accepted and undeployed; working automatic recovery remains incomplete and Disabled. Historical Hyper-V tests are lab evidence.
 - IPv4/IPv6 IPAM inventory, network views, assignments, utilization and DNS/DHCP reconciliation.
-- Reviewed publication of managed prefixes and addresses to NetBox.
+- Previewed publication of managed prefixes and address intent to NetBox; live application activation remains pending.
 - Local threat indicators, asynchronous MISP enrichment, shared DNS/DHCP evidence and analyst investigations.
 - Explainable tunneling and DGA-pattern suspicion, periodic DNS observations and visible sampling limits.
 - Optional Chat Completions-compatible event explanations, including separately operated local GPU model servers. Explanations are advisory and cannot change protection.
 - Native configuration backups, migration previews and policy rollback.
 - Native [UDP/TCP syslog forwarding](docs/SYSLOG.md) for system/DHCP logs, security events and optional DNS queries.
 
-Predictive intelligence, trained classifiers, learned baselines, DHCPv6 and several HA/IPAM workflows remain in development. Read [the feature matrix](docs/FEATURE-MATRIX.md) and [security roadmap](docs/SECURITY-ROADMAP.md) before planning a deployment.
+Predictive intelligence, trained classifiers, learned baselines, DHCPv6 and several HA/IPAM workflows remain in development. Read [the feature matrix](docs/FEATURE-MATRIX.md), [dated deployment status](docs/DEPLOYMENT-STATUS.md) and [security roadmap](docs/SECURITY-ROADMAP.md) before planning a deployment.
 
 ## App stores
 

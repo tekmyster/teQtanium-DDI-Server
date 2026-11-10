@@ -6521,7 +6521,22 @@ namespace DnsServerCore.Dns
 
         #region public
 
+        readonly SemaphoreSlim _lifecycleLock = new SemaphoreSlim(1, 1);
+
         public async Task StartAsync(bool throwIfBindFails = false)
+        {
+            await _lifecycleLock.WaitAsync();
+            try
+            {
+                await StartCoreAsync(throwIfBindFails);
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
+        private async Task StartCoreAsync(bool throwIfBindFails)
         {
             if (_disposed)
                 ObjectDisposedException.ThrowIf(_disposed, this);
@@ -6531,6 +6546,19 @@ namespace DnsServerCore.Dns
 
             _state = ServiceState.Starting;
 
+            try
+            {
+                await StartListenersAsync(throwIfBindFails);
+            }
+            catch
+            {
+                await StopListenersAsync();
+                throw;
+            }
+        }
+
+        private async Task StartListenersAsync(bool throwIfBindFails)
+        {
             //bind on all local end points
             foreach (IPEndPoint localEP in _localEndPoints)
             {
@@ -6828,8 +6856,22 @@ namespace DnsServerCore.Dns
 
         public async Task StopAsync()
         {
-            if (_state != ServiceState.Running)
-                return;
+            await _lifecycleLock.WaitAsync();
+            try
+            {
+                if (_state != ServiceState.Running)
+                    return;
+
+                await StopListenersAsync();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
+        private async Task StopListenersAsync()
+        {
 
             _state = ServiceState.Stopping;
 

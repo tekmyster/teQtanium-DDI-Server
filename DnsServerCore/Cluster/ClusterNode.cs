@@ -617,6 +617,11 @@ namespace DnsServerCore.Cluster
             => GetApiClient().AllocationRequestAsync("api/ddi/dhcp/state/get", cancellationToken: cancellationToken);
         public Task<byte[]> BootstrapAllocationAsync(string action, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken = default)
             => GetApiClient().AllocationRequestAsync("api/ddi/dhcp/migration/" + action, fields, cancellationToken);
+        public Task<byte[]> ChangeAllocationAsync(string action, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken = default)
+            => GetApiClient().AllocationRequestAsync("api/ddi/dhcp/changes/" + action, fields, cancellationToken);
+        // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+        public Task<byte[]> VotingRequestAsync(string action, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken = default)
+            => GetApiClient().AllocationRequestAsync("api/ddi/voting/" + action, fields, cancellationToken);
         public async Task PrepareAllocationAsync(string state, CancellationToken cancellationToken = default)
             => await GetApiClient().AllocationRequestAsync("api/ddi/dhcp/prepare", new Dictionary<string, string> { ["state"] = state }, cancellationToken);
         public async Task PushAllocationStateAsync(string state, CancellationToken cancellationToken = default)

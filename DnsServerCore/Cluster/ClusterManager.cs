@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -227,6 +227,7 @@ namespace DnsServerCore.Cluster
 
         public void LoadConfig(Stream s)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             lock (_saveLock)
             {
                 DisposeAllNodes(); //dispose existing nodes, if any
@@ -460,6 +461,7 @@ namespace DnsServerCore.Cluster
 
         private void DeleteAllClusterConfig()
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             //delete cluster catalog zone
             string clusterCatalogDomain = "cluster-catalog." + _clusterDomain;
 
@@ -511,6 +513,7 @@ namespace DnsServerCore.Cluster
 
         public void InitializeCluster(string clusterDomain, IReadOnlyList<IPAddress> primaryNodeIpAddresses, UserSession session)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (ClusterInitialized)
                 throw new DnsServerException("Failed to initialize Cluster: the Cluster is already initialized.");
 
@@ -660,6 +663,7 @@ namespace DnsServerCore.Cluster
 
         public void DeleteCluster(bool forceDelete)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to delete Cluster: the Cluster is not initialized.");
 
@@ -674,6 +678,7 @@ namespace DnsServerCore.Cluster
 
         public ClusterNode JoinCluster(int secondaryNodeId, Uri secondaryNodeUrl, IReadOnlyList<IPAddress> secondaryNodeIpAddresses, X509Certificate2 secondaryNodeCertificate)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to add Secondary node: the Cluster is not initialized.");
 
@@ -734,6 +739,7 @@ namespace DnsServerCore.Cluster
 
         public async Task<ClusterNode> AskSecondaryNodeToLeaveClusterAsync(int secondaryNodeId)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to ask Secondary node to leave: the Cluster is not initialized.");
 
@@ -755,6 +761,7 @@ namespace DnsServerCore.Cluster
 
         public ClusterNode DeleteSecondaryNode(int secondaryNodeId)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to delete Secondary node: the Cluster is not initialized.");
 
@@ -807,6 +814,7 @@ namespace DnsServerCore.Cluster
 
         public ClusterNode UpdateSecondaryNode(int secondaryNodeId, Uri secondaryNodeUrl, IReadOnlyList<IPAddress> secondaryNodeIpAddresses, X509Certificate2 secondaryNodeCertificate)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to update Secondary node: the Cluster is not initialized.");
 
@@ -1320,6 +1328,7 @@ namespace DnsServerCore.Cluster
 
         public async Task InitializeAndJoinClusterAsync(IReadOnlyList<IPAddress> secondaryNodeIpAddresses, Uri primaryNodeUrl, string primaryNodeUsername, string primaryNodePassword, string primaryNodeTotp = null, IReadOnlyList<IPAddress> primaryNodeIpAddresses = null, bool ignoreCertificateErrors = false, CancellationToken cancellationToken = default)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (ClusterInitialized)
                 throw new DnsServerException("Failed to join Cluster: the Cluster is already initialized.");
 
@@ -1480,6 +1489,7 @@ namespace DnsServerCore.Cluster
 
         public async Task LeaveClusterAsync(bool forceLeave)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to leave Cluster: the Cluster is not initialized.");
 
@@ -1505,6 +1515,7 @@ namespace DnsServerCore.Cluster
 
         public async Task<ClusterNode> UpdatePrimaryNodeAsync(Uri primaryNodeUrl, IReadOnlyList<IPAddress> primaryNodeIpAddresses = null, int primaryNodeId = -1, CancellationToken cancellationToken = default)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to update Primary node: the Cluster is not initialized.");
 
@@ -1814,6 +1825,7 @@ namespace DnsServerCore.Cluster
 
         public void UpdateClusterFromPrimaryNode(ClusterInfo primaryNodeClusterInfo)
         {
+            _dnsWebService.ValidateVotingEnrollmentUpdate(primaryNodeClusterInfo);
             IReadOnlyDictionary<int, ClusterNode> existingClusterNodes = _clusterNodes;
 
             //validation
@@ -1949,6 +1961,7 @@ namespace DnsServerCore.Cluster
 
         public async Task PromoteToPrimaryNodeAsync(bool forceDeletePrimary, bool retainFencedPrimary = false)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             if (retainFencedPrimary && !forceDeletePrimary) throw new ArgumentException("Fenced promotion requires force mode after verified external fencing.");
             if (!ClusterInitialized)
                 throw new DnsServerException("Failed to promote to Primary node: the Cluster is not initialized.");
@@ -2112,6 +2125,7 @@ namespace DnsServerCore.Cluster
 
         public ClusterNode UpdateSelfNodeIPAddresses(IReadOnlyList<IPAddress> ipAddresses)
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             ClusterNode selfNode = GetSelfNode();
 
             switch (selfNode.Type)
@@ -2156,6 +2170,7 @@ namespace DnsServerCore.Cluster
 
         public void UpdateSelfNodeUrlAndCertificate()
         {
+            _dnsWebService.RequireMutableVotingEnrollment();
             ClusterNode selfNode = GetSelfNode();
 
             //validation

@@ -1,54 +1,31 @@
-# teQtanium DDI Server License
-# Free for Homelabs & Non-Profits — Community Edition
+# teQtanium license and edition policy
 
-Copyright (c) 2026 Tekmyster Industries, LLC. All Rights Reserved.
-https://tekmyster.com
+teQtanium DDI Server is developed by Tekmyster Industries, LLC and derives from Technitium DNS Server by Shreyas Zare and its contributors. Original copyrights and notices are retained. See [third-party notices](THIRD-PARTY-NOTICES.md).
 
-teQtanium DDI Server is a derivative of Technitium DNS Server. Original copyright retained. See THIRD-PARTY-NOTICES.md.
+## Domain A: GPL-covered application
 
-## Two License Domains
+The root [LICENSE](LICENSE) and identical [LICENSE-GPL3](LICENSE-GPL3) contain GNU GPL v3. Upstream files, their modifications and previously GPL-distributed files retain their applicable GPL terms and original headers. The existing `Tectanium.WindowsService/Program.cs` and project file remain GPL-covered despite their directory name. Third-party materials retain their own notices, including the Public Suffix List's MPL 2.0 notice.
 
-### Domain A: Upstream GPL-3.0
-All files that existed in Technitium DNS Server at fork time and modifications to those files remain licensed under GNU General Public License v3.0 (GPL-3.0). See LICENSE-GPL3 file and THIRD-PARTY-NOTICES.md.
+The commercial thresholds, key policy, SaaS/OEM restrictions and edition descriptions below do not restrict GPL permissions. Organization size, query rate, use of HA/MISP/SSO, and commercial or hosted operation do not by themselves impose an additional proprietary license on GPL-covered code. Do not replace GPL notices or classify existing GPL features as proprietary.
 
-### Domain B: teQtanium Private — Tekmyster Industries, LLC
-All new files created by Tekmyster Industries, LLC under Apps/Tectanium.*/**, Tectanium.*/**, Tectanium.WindowsService/**, DnsServerCore/**/Tectanium/**, packaging/tectanium/**, docs/tectanium/** are proprietary commercial, Copyright (c) 2026 Tekmyster Industries, LLC. All Rights Reserved.
+## Domain B: private development and separately licensable components
 
-## Free Community Edition — No Key Required
+Reserved commercial paths and the private inventory are defined in [license boundaries](docs/LICENSE-BOUNDARIES.md). These are confidentiality and review rules. A new file, copyright header, folder, service boundary or in-process interface does not by itself establish legal independence from the GPL application. Domain B terms can apply only to components that are independently licensable and supplied under applicable separate terms. This document grants no GPL linking exception or proprietary relicensing right.
 
-You may use, self-host, and run the combined work for FREE if you are:
+## Owner's commercial offering policy
 
-a) Homelab / Personal / Individual
-b) Non-Profit — 501(c)(3) or international equivalent — qualifies for FREE Enterprise Unlimited
-c) Education / Research
-d) Small Business — fewer than 250 managed IP addresses AND less than 5,000 DNS queries per second (95th percentile)
+The owner describes the following terms for separately licensable private components and commercial services. They are offering policy, not proof that an implementation, entitlement service, signing identity, support SLA or production capability is available.
 
-Includes: Authoritative + recursive DNS, DNSSEC, DoT/DoH, distributed IPv4 DHCP with durable leases, IPv4/IPv6 IPAM, NetBox publish (reviewed), local threat indicators, DNS/DHCP evidence, syslog forwarding, tunneling/DGA suspicion, backups/migration, community support.
+| Offering | Intended eligibility and terms |
+| --- | --- |
+| Community private-component use | Homelab/personal, education/research, and small businesses with fewer than 250 managed IPs AND less than 5,000 DNS qps at the 95th percentile; no key required under the owner's policy |
+| Non-profit Enterprise | Verified 501(c)(3) or international equivalent; owner's policy offers unlimited use at no charge, with a free non-expiring key after verification |
+| Commercial Enterprise / OEM | Businesses at 250+ managed IPs or 5,000+ qps, MSP/MSSP use and hosted third-party SaaS/OEM use require applicable separate commercial terms for private components/services |
 
-## Enterprise Edition — Requires License
+HA, MISP, SSO, signed installers and SLA/support are not made proprietary merely by appearing in an Enterprise offering description. Check [feature status](docs/FEATURE-MATRIX.md) for actual implementation and qualification. Licensing feedback must remain a banner; failure must never stop DNS or DHCP.
 
-You need a commercial license from Tekmyster Industries, LLC if you are:
+Commercial inquiries: licensing@tekmyster.com. Non-profit verification: nonprofits@tekmyster.com. [Tekmyster Industries, LLC](https://tekmyster.com).
 
-- Business with 250+ IPs or 5k+ qps
-- MSP / MSSP managing clients
-- Requiring HA clustering, fenced DHCP recovery, MISP async enrichment, SSO, signed installers, SLA/support
+## Publication
 
-Contact: licensing@tekmyster.com
-
-## Non-Profit Enterprise — FREE Unlimited
-
-Verified non-profits get FREE Enterprise unlimited. Email nonprofits@tekmyster.com with 501(c)(3) letter + estimated IP count. We issue free key, unlimited, no expiration.
-
-## Restrictions
-
-You may not offer teQtanium as hosted SaaS to third parties without OEM license. You must preserve GPL-3.0 notices for Domain A.
-
-## Summary
-
-| Edition | Who | Limit | Cost |
-|---|---|---|---|
-| Community | Homelab, personal, edu, small biz | <250 IPs & <5k qps | FREE |
-| Non-Profit Enterprise | Verified non-profit | Unlimited | FREE |
-| Enterprise | Business 250+, MSP, HA | 250+ | Paid |
-
-Tekmyster Industries, LLC — licensing@tekmyster.com — nonprofits@tekmyster.com
+Reviewed eligible community GPL source may be published publicly. Private components and operational material remain private; commercial publication requires explicit PRIVATE repository verification before every private push. Public binary releases remain held. Publication policy does not revoke previously granted GPL rights. See [license boundaries](docs/LICENSE-BOUNDARIES.md).

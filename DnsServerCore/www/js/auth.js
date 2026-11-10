@@ -45,9 +45,11 @@ $(function () {
             showPageLogin(true);
         }
         else {
+            var restoreRevision = sessionUiRevision;
             HTTPRequest({
                 url: "api/user/session/get",
                 token: token,
+                isCurrent: function () { return sessionUiRevision === restoreRevision && sessionData === null; },
                 success: function (responseJSON) {
                     sessionData = responseJSON;
                     localStorage.setItem("token", sessionData.token);
@@ -262,9 +264,11 @@ function login(username, password) {
     }
 
     var btn = $("#btnLogin").button("loading");
+    var loginRevision = sessionUiRevision;
 
     HTTPRequest({
         url: "api/user/login",
+        isCurrent: function () { return sessionUiRevision === loginRevision && sessionData === null; },
         method: "POST",
         data: "user=" + encodeURIComponent(username) + "&pass=" + encodeURIComponent(password) + "&totp=" + encodeURIComponent(totp) + "&includeInfo=true",
         procecssData: false,
@@ -315,17 +319,18 @@ function login(username, password) {
 }
 
 function logout() {
+    var token = sessionData && sessionData.token;
+    // Clear actor data immediately. The server sign-out may finish after a new login;
+    // its late response must not clear or notify that newer session.
+    showPageLogin();
+    if (!token) return;
+    var logoutRevision = sessionUiRevision;
     HTTPRequest({
         url: "api/user/logout",
-        token: sessionData.token,
-        success: function (responseJSON) {
-            sessionData = null;
-            showPageLogin();
-        },
-        error: function () {
-            sessionData = null;
-            showPageLogin();
-        }
+        token: token,
+        isCurrent: function () { return sessionUiRevision === logoutRevision && sessionData === null; },
+        success: function () {},
+        error: function () {}
     });
 }
 

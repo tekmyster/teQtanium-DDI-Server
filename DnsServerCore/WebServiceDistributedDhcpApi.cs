@@ -278,6 +278,58 @@ namespace DnsServerCore
             var writer = context.GetCurrentJsonWriter(); writer.WritePropertyName("state");
             if (state is null) writer.WriteNullValue(); else writer.WriteRawValue(state);
         }
+        async Task ReturnGrantAllocation(HttpContext context) => await ChangeGrantAllocation(context, false);
+        async Task ReclaimGrantAllocation(HttpContext context) => await ChangeGrantAllocation(context, true);
+        async Task ChangeGrantAllocation(HttpContext context, bool reclaim)
+        {
+            void Authorize()
+            {
+                RequireDhcpPermission(context, PermissionFlag.Modify);
+                if (!HasDirectTlsTransport(context) || context.GetCurrentSession().Type == UserSessionType.ClusterApiToken || context.Request.QueryOrForm("actingUser") is not null ||
+                    !_authManager.IsPermitted(PermissionSection.Administration, GetSessionUser(context), PermissionFlag.Delete))
+                    throw new DnsWebServiceException("Grant return requires a direct HTTPS administrator session.");
+                if (!_clusterManager.ClusterInitialized || _clusterManager.GetSelfNode().IsFenced) throw new InvalidOperationException("Retain current authority while cluster membership is unavailable or fenced.");
+            }
+            Authorize();
+            string name = context.Request.GetQueryOrForm("scope"), epoch = context.Request.GetQueryOrForm("epoch"), id = context.Request.GetQueryOrForm("requestId");
+            string participant = AllocationNode(context.Request.GetQueryOrForm(reclaim ? "borrower" : "owner"));
+            var scope = _dhcpServer.GetScope(name) ?? throw new ArgumentException("Unknown scope.");
+            long expected = long.Parse(context.Request.GetQueryOrForm("expectedSequence"), System.Globalization.CultureInfo.InvariantCulture);
+            uint address = reclaim ? 0 : AllocationSequence.Number(System.Net.IPAddress.Parse(context.Request.GetQueryOrForm("address")));
+            string grantId = reclaim ? null : context.Request.GetQueryOrForm("grantId");
+            string expectedHash = context.Request.GetQueryOrForm("expectedHash");
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); deadline.CancelAfter(TimeSpan.FromSeconds(10));
+            await scope.CaptureNativeAllocationAsync(_allocation.NodeName(), deadline.Token, snapshot =>
+            {
+                Authorize();
+                if (AllocationNode(participant) != participant || !scope.MatchesAllocationPlan(_allocation.Plan(name))) throw new InvalidOperationException("Current enrolled participants and matching native scope are required.");
+                var current = _allocation.Snapshot();
+                var receipt = reclaim ? current.Replicas.SingleOrDefault(r => r.Scope == name && r.Node == participant)?.GrantReturns?.SingleOrDefault(r => r.Id == id)
+                    : current.Replicas.SingleOrDefault(r => r.Scope == name && r.Node == _allocation.NodeName())?.GrantReturns?.SingleOrDefault(r => r.Id == id);
+                var grant = reclaim ? receipt?.Grant : receipt?.Grant ?? current.Replicas.SingleOrDefault(r => r.Scope == name && r.Node == participant)?.Entries.SingleOrDefault(e => e.State == "Grant" && e.Address == address && e.GrantId == grantId && e.Borrower == _allocation.NodeName());
+                if (grant is null) throw new InvalidOperationException("Missing the original grant or surrender receipt; retain the original donor and request identity.");
+                string actualHash = reclaim ? DistributedAllocation.GrantReturnHash(name, epoch, receipt) : DistributedAllocation.GrantReviewHash(name, epoch, participant, grant);
+                if (actualHash != expectedHash) throw new InvalidOperationException("Grant review changed; read the exact current grant or surrender receipt before retrying.");
+                uint target = grant.Address;
+                if (snapshot.Entries.Any(e => e.Address == target && e.State != "Released" && e.Expires > DateTime.UtcNow)) throw new InvalidOperationException("Native leases or offers still protect this grant; retain its exact lifetime.");
+                using var persisted = _dhcpServer.SaveProvisionedScope(name);
+                string[] Bindings(Scope source) => source.Leases.Values.Select(lease =>
+                {
+                    using var bytes = new MemoryStream(); lease.WriteTo(new BinaryWriter(bytes));
+                    return Convert.ToBase64String(bytes.ToArray());
+                }).Order(StringComparer.Ordinal).ToArray();
+                // Compare every native binding field byte-for-byte after independent
+                // reopen. Dictionary enumeration order is not binding identity. Native
+                // dates retain their existing format; JSON authority retains full ticks.
+                if (persisted.Enabled || !Bindings(scope).SequenceEqual(Bindings(persisted)) || OwnershipConfiguration(persisted) != snapshot.Configuration)
+                    throw new InvalidOperationException("Persisted native scope differs; retain capacity and reconcile original bindings.");
+                Authorize();
+                if (reclaim) _allocation.ReclaimGrant(name, epoch, participant, id, expected);
+                else _allocation.RelinquishGrant(name, epoch, participant, address, grantId, id, expected);
+                return Task.CompletedTask;
+            });
+            WriteAllocationState(context);
+        }
         async Task HandoffAllocation(HttpContext context)
         {
             RequireDhcpPermission(context, PermissionFlag.Modify);
@@ -436,14 +488,28 @@ namespace DnsServerCore
             }));
             if (coordinatorUnavailable || results.Any(success => !success)) throw new IOException("A coordinator or peer is unavailable; reachable peers received the publication attempt and local authority is retained.");
         }
+        int _capacityDonorCursor;
         async Task<byte[]> BorrowAllocation(string scope, string borrower)
         {
             var plan = _allocation.Plan(scope);
-            foreach (string owner in plan.Owners.Where(n => n != borrower))
+            var candidates = plan.Owners.Where(n => n != borrower).ToArray();
+            if (candidates.Length == 0) return null;
+            int start = (int)((uint)Interlocked.Increment(ref _capacityDonorCursor) % (uint)candidates.Length);
+            // At most three requests, each with a two-second deadline. Pending IDs
+            // remain scoped to their original donor across later rotations/restarts.
+            foreach (string owner in Enumerable.Range(0, Math.Min(3, candidates.Length)).Select(i => candidates[(start + i) % candidates.Length]))
             {
                 if (!_clusterManager.ClusterInitialized || !_clusterManager.TryGetClusterNode(owner, out var donor)) continue;
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_allocationStop.Token); deadline.CancelAfter(TimeSpan.FromSeconds(2));
-                try { var state = await donor.GrantAllocationAsync(scope, borrower, Guid.NewGuid().ToString("N"), deadline.Token); if (state is not null) return state; }
+                try
+                {
+                    string requestId = _allocation.CapacityRequest(scope, owner);
+                    var state = await donor.GrantAllocationAsync(scope, borrower, requestId, deadline.Token);
+                    if (state is null) continue;
+                    _allocation.Merge(state);
+                    _allocation.CompleteCapacityRequest(scope, owner, requestId);
+                    return _allocation.Export();
+                }
                 catch (Exception) when (!_allocationStop.IsCancellationRequested) { }
             }
             return null;

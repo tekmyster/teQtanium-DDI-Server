@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -123,7 +123,7 @@ namespace DnsServerCore.Dns.ResourceRecords
         public virtual bool Disabled
         {
             get { return _disabled; }
-            set { _disabled = value; }
+            set { lock (this) _disabled = value; }
         }
 
         public string Comments
@@ -133,8 +133,7 @@ namespace DnsServerCore.Dns.ResourceRecords
             {
                 if ((value is not null) && (value.Length > 255))
                     throw new ArgumentOutOfRangeException(nameof(Comments), "Resource record comment text cannot exceed 255 characters.");
-
-                _comments = value;
+                lock (this) _comments = value;
             }
         }
 
@@ -147,7 +146,7 @@ namespace DnsServerCore.Dns.ResourceRecords
         public virtual uint ExpiryTtl
         {
             get { return _expiryTtl; }
-            set { _expiryTtl = value; }
+            set { lock (this) _expiryTtl = value; }
         }
 
         public DateTime LastUsedOn

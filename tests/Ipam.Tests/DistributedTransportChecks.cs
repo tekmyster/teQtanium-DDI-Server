@@ -14,7 +14,7 @@ using System.Text.Json;
 using TechnitiumLibrary.Net.Dns;
 using TechnitiumLibrary.Net.Dns.ResourceRecords;
 
-static class DistributedTransportChecks
+static partial class DistributedTransportChecks
 {
     static int Port()
     {
@@ -37,14 +37,28 @@ static class DistributedTransportChecks
     }
     sealed class PinnedHandler : HttpClientHandler
     {
+        public string LoseLifecycleResponse;
+        public bool LoseCapacityResponse;
         public bool Disconnected;
+        public string LoseVotingResponse;
+        public Action<string> AfterVotingResponse;
+        public bool Stall;
         public string LoseMigrationResponse;
+        public Action<string> AfterOwnershipResponse;
         public PinnedHandler(X509Certificate2 certificate)
         { string expected = certificate.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256); ServerCertificateCustomValidationCallback = (_, actual, _, _) => actual is not null && actual.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256) == expected; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (Stall) await Task.Delay(Timeout.Infinite, cancellationToken);
             if (Disconnected) throw new HttpRequestException("Simulated disconnected replication link");
             var response = await base.SendAsync(request, cancellationToken);
+            if (request.RequestUri.AbsolutePath.Contains("/voting/")) AfterVotingResponse?.Invoke(request.RequestUri.AbsolutePath.Split('/').Last());
+            if (LoseVotingResponse is not null && request.RequestUri.AbsolutePath.EndsWith("/voting/" + LoseVotingResponse)) { LoseVotingResponse = null; response.Dispose(); throw new HttpRequestException("Voting reply lost after durable native processing"); }
+            if (LoseLifecycleResponse is not null && request.RequestUri.AbsolutePath.EndsWith("/grants/"+LoseLifecycleResponse)) { LoseLifecycleResponse=null; response.Dispose(); throw new HttpRequestException("Lifecycle reply lost after durable mutation"); }
+            if (LoseCapacityResponse && request.RequestUri.AbsolutePath.EndsWith("/dhcp/grant")) { LoseCapacityResponse=false; response.Dispose(); throw new HttpRequestException("Capacity reply lost after durable grant"); }
+            if (request.RequestUri.AbsolutePath.Contains("/changes/")) AfterOwnershipResponse?.Invoke(request.RequestUri.AbsolutePath.Split('/').Last());
+            if (LoseMigrationResponse is not null && request.RequestUri.AbsolutePath.EndsWith("/changes/" + LoseMigrationResponse, StringComparison.Ordinal))
+            { LoseMigrationResponse = null; response.Dispose(); throw new HttpRequestException("Ownership response lost after remote durable processing"); }
             if (LoseMigrationResponse is not null && request.RequestUri.AbsolutePath.EndsWith("/migration/" + LoseMigrationResponse, StringComparison.Ordinal))
             {
                 LoseMigrationResponse = null; response.Dispose(); throw new HttpRequestException("Migration response lost after remote durable processing");
@@ -58,20 +72,28 @@ static class DistributedTransportChecks
         using var response = await client.PostAsync(path, new FormUrlEncodedContent(fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value))));
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()); return json.RootElement.Clone();
     }
-    public static async Task Run(bool serve = false)
+    public static async Task Run(bool serve = false, bool ownershipOnly = false, bool capacityOnly = false, bool votingOnly = false)
     {
-        string folder = Path.Combine(Path.GetTempPath(), "ddi-transport-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
+        string folder = capacityOnly ? Environment.GetEnvironmentVariable("TEQTANIUM_CAPACITY_ROOT") ?? Path.Combine(Path.GetTempPath(), "ddi-transport-tests-" + Guid.NewGuid().ToString("N")) : Path.Combine(Path.GetTempPath(), "ddi-transport-tests-" + Guid.NewGuid().ToString("N"));
+        if (votingOnly && Environment.GetEnvironmentVariable("TEQTANIUM_VOTING_ROOT") is string votingRoot) folder = votingRoot;
+        if (Path.GetDirectoryName(folder) != Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar) || !(Path.GetFileName(folder).StartsWith("ddi-transport-tests-") || Path.GetFileName(folder).StartsWith("ddi-capacity-kill-"))) throw new Exception("Unexpected fixture directory");
+        Directory.CreateDirectory(folder);
         var services = new List<DnsWebService>(); var originals = new List<HttpClient>(); var freshAdmins = new List<HttpClient>(); var tlsClients = new List<HttpClient>(); var peerApis = new List<HttpApiClient>();
-        string[] names = ["127.0.0.1", "127.0.0.2", "127.0.0.3"]; int[] tlsPorts = new int[3]; string[] serviceTokens = new string[3]; string[] passwords = new string[3]; var certificates = new X509Certificate2[3];
+        int nodeCount = votingOnly ? 6 : 3;
+        string[] names = Enumerable.Range(1, nodeCount).Select(n => "127.0.0." + n).ToArray(); int[] tlsPorts = new int[nodeCount]; string[] serviceTokens = new string[nodeCount]; string[] passwords = new string[nodeCount]; var certificates = new X509Certificate2[nodeCount];
         string[] variables = ["DNS_SERVER_ADMIN_PASSWORD", "DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES", "DNS_SERVER_WEB_SERVICE_HTTP_PORT", "DNS_SERVER_WEB_SERVICE_HTTPS_PORT", "DNS_SERVER_WEB_SERVICE_ENABLE_HTTPS", "DNS_SERVER_WEB_SERVICE_USE_SELF_SIGNED_CERT", "DNS_SERVER_WEB_SERVICE_HTTP_TO_TLS_REDIRECT", "DNS_SERVER_WEB_SERVICE_WWW_FOLDER_PATH"];
         var originalEnvironment = variables.ToDictionary(n => n, Environment.GetEnvironmentVariable); int checks = 0;
         void Check(bool value, string why) { if (!value) throw new Exception(why); checks++; }
         try
         {
             string repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-            for (int index = 0; index < 3; index++)
+            for (int index = 0; index < nodeCount; index++)
             {
-                string config = Path.Combine(folder, "node-" + index); Directory.CreateDirectory(config); int httpPort = Port(); tlsPorts[index] = Port(); passwords[index] = Guid.NewGuid().ToString("N") + "Aa!9";
+                string config = Path.Combine(folder, "node-" + index); Directory.CreateDirectory(config); int httpPort = Port(); tlsPorts[index] = Port(); passwords[index] = capacityOnly ? "Isolated-Capacity-Fixture1!" : Guid.NewGuid().ToString("N") + "Aa!9";
+                if (votingOnly) passwords[index] = "Isolated-Voting-Fixture1!";
+                string fixturePorts=Path.Combine(config,"capacity-ports.json");
+                if((capacityOnly || votingOnly) && File.Exists(fixturePorts)) { var saved=JsonSerializer.Deserialize<int[]>(File.ReadAllText(fixturePorts));httpPort=saved[0];tlsPorts[index]=saved[1]; }
+                else if(capacityOnly || votingOnly) File.WriteAllText(fixturePorts,JsonSerializer.Serialize(new[]{httpPort,tlsPorts[index]}));
                 Environment.SetEnvironmentVariable("DNS_SERVER_ADMIN_PASSWORD", passwords[index]); Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES", "127.0.0.1");
                 Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_HTTP_PORT", httpPort.ToString()); Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_HTTPS_PORT", tlsPorts[index].ToString());
                 Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_ENABLE_HTTPS", "true"); Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_USE_SELF_SIGNED_CERT", "true"); Environment.SetEnvironmentVariable("DNS_SERVER_WEB_SERVICE_HTTP_TO_TLS_REDIRECT", "false");
@@ -93,10 +115,10 @@ static class DistributedTransportChecks
             }
             var linkHandlers = new List<PinnedHandler>();
             var links = new Dictionary<(int Source, int Target), PinnedHandler>();
-            for (int index = 0; index < 3; index++)
+            for (int index = 0; index < nodeCount; index++)
             {
                 var manager = Field<ClusterManager>(services[index], "_clusterManager"); var nodes = new Dictionary<int, ClusterNode>();
-                for (int peer = 0; peer < 3; peer++)
+                for (int peer = 0; peer < nodeCount; peer++)
                 {
                     var node = new ClusterNode(manager, peer + 1, new Uri("https://" + names[peer] + ":" + tlsPorts[peer]), [IPAddress.Loopback], peer == 0 ? ClusterNodeType.Primary : ClusterNodeType.Secondary, peer == index ? ClusterNodeState.Self : ClusterNodeState.Connected); nodes.Add(peer + 1, node);
                     if (peer == index) continue;
@@ -109,7 +131,7 @@ static class DistributedTransportChecks
                 }
                 typeof(ClusterManager).GetField("_clusterNodes", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(manager, nodes);
             }
-            for (int index = 0; index < 3; index++)
+            for (int index = 0; index < nodeCount; index++)
             {
                 // Fresh transport sessions authenticate with the new token and exercise its required write privilege.
                 Check((await Call(tlsClients[index], "/api/ddi/dhcp/state/get")).GetProperty("status").GetString() == "ok", "Fresh TLS cluster token read failed");
@@ -127,6 +149,15 @@ static class DistributedTransportChecks
                 Check((await Call(fresh, "/api/ddi/dhcp/state/get")).GetProperty("status").GetString() == "ok", "Fresh administrator lacks DHCP view access");
                 Check((await Call(fresh, "/api/dhcp/scopes/set", ("name", "Default"), ("domainName", "lab.example"))).GetProperty("status").GetString() == "ok", "Fresh administrator lacks DHCP modify access");
             }
+            if (votingOnly) { await CheckVoting(services, originals, freshAdmins, tlsClients, names, links, folder, Check); Console.WriteLine($"PASS: {checks} native voting and isolated-owner checks"); return; }
+            if (capacityOnly) { Environment.SetEnvironmentVariable("TEQTANIUM_CAPACITY_ADMIN_PROOF", passwords[1]); await CheckCapacity(services, originals, freshAdmins, tlsClients, names, links, Check); Console.WriteLine($"PASS: {checks} native capacity checks"); return; }
+            if (ownershipOnly)
+            {
+                await CheckOwnershipChanges(services, originals, freshAdmins, tlsClients, names, passwords, links, Check);
+                Console.WriteLine($"PASS: {checks} bounded native ownership checks; no production effects"); return;
+            }
+            await CheckIngestionBoundaries(services[0], tlsClients[0], originals[0], freshAdmins[0], Check);
+            if (Environment.GetEnvironmentVariable("TEQTANIUM_SYNC_BASELINE") == "1") { await CheckCapturedIngestion(services, tlsClients, Check); Console.WriteLine($"PASS: {checks} baseline native HTTPS parser reproduction checks"); return; }
             await CheckLiveMigration(services, originals, freshAdmins, tlsClients, names, disconnected => links[(0, 2)].Disconnected = disconnected, action => links[(0, 2)].LoseMigrationResponse = action, Check);
             var bootstrap = await Call(originals[0], "/api/ddi/dhcp/plan/set", ("scope", "Default"), ("owners", string.Join(',', names)));
             Check(bootstrap.GetProperty("status").GetString() == "ok", "Live TLS bootstrap failed: " + bootstrap);
@@ -179,6 +210,20 @@ static class DistributedTransportChecks
             Field<DhcpServer>(services[1], "_dhcpServer").GetScope("Default").DomainName = "local-drift.example";
             await (Task)synchronize.Invoke(services[1], [CancellationToken.None]);
             Check(Field<DhcpServer>(services[1], "_dhcpServer").GetScope("Default").DomainName == "updated.lab.example", "Equal-revision desired configuration does not reconcile local option drift");
+            // Drive replication explicitly so a background pass cannot relay around
+            // the deliberately stalled fixture links during the negative assertion.
+            foreach (var store in stores) { Field<CancellationTokenSource>(store, "_stop").Cancel(); await (Field<Task>(store, "_worker") ?? Task.CompletedTask); }
+            foreach (var link in links) if (link.Key.Source == 2 || link.Key.Target == 2) link.Value.Stall = true;
+            uint partialAddress = sequence.Candidates(names[0]).Skip(2).First();
+            stores[0].Commit("Default", partialAddress, "1-0204", "02-04", "partial.lab.example", expiry);
+            var timeoutClock = System.Diagnostics.Stopwatch.StartNew(); bool timedOut = false;
+            try { await (Task)synchronize.Invoke(services[0], [CancellationToken.None]); } catch (IOException) { timedOut = true; }
+            Console.WriteLine($"Partial peer stall observed failure={timedOut} elapsedMs={timeoutClock.ElapsedMilliseconds}; existing three-second deadline retained");
+            Check(timedOut && timeoutClock.Elapsed < TimeSpan.FromSeconds(8), "Stalled ingestion did not observe the existing bounded deadline");
+            Check(stores[1].ResolveLive(partialAddress) is not null && stores[2].ResolveLive(partialAddress) is null && stores[0].FindLease("Default", "1-0204") is not null, "Partial failure lost authority or pretended all peers converged");
+            foreach (var link in links) link.Value.Stall = false;
+            await (Task)synchronize.Invoke(services[0], [CancellationToken.None]);
+            Check(stores[2].ResolveLive(partialAddress) is not null, "Stalled peer did not converge on retry");
             foreach (var handler in linkHandlers) handler.Disconnected = true;
             uint secondAddress = sequence.Candidates(names[0]).Skip(1).First();
             Check(stores[0].Hold("Default", secondAddress, "1-0202", "02-02", "isolated.lab.example", expiry), "Disconnected owner cannot allocate independently"); stores[0].Commit("Default", secondAddress, "1-0202", "02-02", "isolated.lab.example", expiry);
@@ -218,6 +263,7 @@ static class DistributedTransportChecks
             var remainingRecords = new List<DnsResourceRecord>(); services[0].DnsServer.AuthZoneManager.ListAllZoneRecords("lab.example", [DnsResourceRecordType.A], remainingRecords);
             Check(remainingRecords.Any(r => r.Name == "client.lab.example"), "Expired donor lease cleanup deletes the recipient's DNS record");
             await CheckUnusedRecoveryTransport(services, originals, freshAdmins, tlsClients, names, Check);
+            await CheckCapturedIngestion(services, tlsClients, Check);
             Console.WriteLine($"PASS: {checks} three-server certificate-pinned HTTPS replication, bootstrap, authentication, link failure, grant and unused-owner recovery checks; loopback fresh read/modify sessions verified.");
             if (serve)
             {
@@ -237,8 +283,131 @@ static class DistributedTransportChecks
             // Original administrative sessions remain open through every fresh-session check.
             foreach (var client in freshAdmins) client.Dispose(); foreach (var client in tlsClients) client.Dispose(); foreach (var original in originals) original.Dispose();
             foreach (var service in services) await service.DisposeAsync(); foreach (var api in peerApis) api.Dispose();
+            Environment.SetEnvironmentVariable("TEQTANIUM_CAPACITY_ADMIN_PROOF", null);
             foreach (var pair in originalEnvironment) Environment.SetEnvironmentVariable(pair.Key, pair.Value);
-            if (Path.GetDirectoryName(folder) != Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar)) throw new Exception("Unexpected lab directory"); Directory.Delete(folder, true);
+            if (Path.GetDirectoryName(folder) != Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar)) throw new Exception("Unexpected lab directory");
+            if (!votingOnly || Environment.GetEnvironmentVariable("TEQTANIUM_VOTING_ROOT") is null) Directory.Delete(folder, true);
+        }
+    }
+    static async Task CheckIngestionBoundaries(DnsWebService service, HttpClient token, HttpClient plaintext, HttpClient admin, Action<bool, string> check)
+    {
+        static string EncodedValue(int length)
+        {
+            const string start = "{\"version\":1,\"plans\":[],\"replicas\":[],\"padding\":\"";
+            const string end = "\"}";
+            int overhead = Uri.EscapeDataString(start + end).Length;
+            int remaining = length - overhead;
+            return start + new string('!', remaining / 3) + new string('a', remaining % 3) + end;
+        }
+        byte[] before = Field<DistributedAllocation>(service, "_allocation").Export();
+        bool baseline = Environment.GetEnvironmentVariable("TEQTANIUM_SYNC_BASELINE") == "1";
+        foreach (int delta in new[] {-1, 0, 1})
+        {
+            string state = EncodedValue(4 * 1024 * 1024 + delta);
+            using var form = new FormUrlEncodedContent(new Dictionary<string,string>{{"state",state}});
+            check((await form.ReadAsByteArrayAsync()).Length - 6 == 4 * 1024 * 1024 + delta, "Encoded boundary fixture is inexact");
+            var result = await Call(token, "/api/ddi/dhcp/state/ingest", ("state", state));
+            bool ok = result.GetProperty("status").GetString() == "ok";
+            Console.WriteLine($"Native authenticated ingestion encodedValue={4 * 1024 * 1024 + delta} decodedBytes={Encoding.UTF8.GetByteCount(state)} status={result.GetProperty("status").GetString()}" + (ok ? "" : " category=" + result.GetProperty("errorMessage").GetString()));
+            check(ok == (!baseline || delta <= 0), "Native ingestion boundary outcome is incorrect");
+        }
+        if (baseline) return;
+        string large = EncodedValue(5 * 1024 * 1024);
+        check((await Call(admin, "/api/ddi/dhcp/state/ingest", ("state", large))).GetProperty("status").GetString() == "error", "Administrative session bypasses cluster ingestion restriction");
+        check((await Call(token, "/api/ddi/dhcp/state/ingest?actingUser=admin", ("state", large))).GetProperty("status").GetString() == "error", "Proxied session bypasses direct service restriction");
+        check((await Call(plaintext, "/api/ddi/dhcp/state/ingest", ("state", large))).GetProperty("status").GetString() == "error", "Plaintext session accepts ingestion");
+        var certificate = (X509Certificate2)typeof(DnsWebService).GetProperty("WebServiceTlsCertificate", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(service);
+        using (var unauthenticated = new HttpClient(new PinnedHandler(certificate)) { BaseAddress = token.BaseAddress })
+        {
+            foreach (string credential in new[] { "", new string('0',64) })
+            {
+                unauthenticated.DefaultRequestHeaders.Authorization = credential == "" ? null : new AuthenticationHeaderValue("Bearer", credential);
+                check((await Call(unauthenticated, "/api/ddi/dhcp/state/ingest", ("state", large))).GetProperty("status").GetString() != "ok", "Missing/invalid bearer credential acquired ingestion allowance");
+            }
+            object auth = Field<object>(service, "_authManager");
+            Type kind = auth.GetType().Assembly.GetType("DnsServerCore.Auth.UserSessionType");
+            var create = auth.GetType().GetMethods().Single(m => m.Name == "CreateSession" && m.GetParameters()[2].ParameterType == typeof(string));
+            var expired = create.Invoke(auth, [Enum.Parse(kind,"Standard"), null, "admin", IPAddress.Loopback, "Expired isolated fixture"]);
+            expired.GetType().GetField("_lastSeen", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(expired, DateTime.UtcNow.AddYears(-10));
+            check((bool)expired.GetType().GetMethod("HasExpired").Invoke(expired, null), "Expired fixture did not expire");
+            unauthenticated.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", (string)expired.GetType().GetProperty("Token").GetValue(expired));
+            check((await Call(unauthenticated, "/api/ddi/dhcp/state/ingest", ("state", large))).GetProperty("status").GetString() != "ok", "Expired session acquired ingestion allowance");
+        }
+        var unrelated = await Call(token, "/api/ddi/dhcp/prepare", ("state", large));
+        check(unrelated.GetProperty("status").GetString() == "error" && unrelated.GetProperty("errorMessage").GetString().Contains("4194304"), "Unrelated form route limit changed");
+        const string prefix = "{\"version\":1,\"plans\":[],\"replicas\":[],\"padding\":\"";
+        const string suffix = "\"}";
+        foreach (int delta in new[] {-1, 0, 1})
+        {
+            string state = prefix + new string('!', 8 * 1024 * 1024 + delta - prefix.Length - suffix.Length) + suffix;
+            var outcome = await Call(token, "/api/ddi/dhcp/state/ingest", ("state", state));
+            bool ok = outcome.GetProperty("status").GetString() == "ok";
+            check(ok == (delta <= 0), "Decoded allocation boundary outcome is incorrect");
+            if (!ok) check(outcome.GetProperty("errorMessage").GetString().Contains("8 MiB"), "Decoded limit did not reject oversized state");
+            Console.WriteLine($"Native authenticated ingestion decodedBytes={8 * 1024 * 1024 + delta} status={outcome.GetProperty("status").GetString()}");
+        }
+        int unicodeTarget = 8 * 1024 * 1024 + 1;
+        int available = unicodeTarget - prefix.Length - suffix.Length;
+        string unicode = prefix + new string('\u20ac', available / 3) + new string('a', available % 3) + suffix;
+        check(unicode.Length < 8 * 1024 * 1024 && Encoding.UTF8.GetByteCount(unicode) == unicodeTarget, "UTF-8 fixture does not distinguish characters from bytes");
+        var unicodeResult = await Call(token, "/api/ddi/dhcp/state/ingest", ("state", unicode));
+        check(unicodeResult.GetProperty("status").GetString() == "error" && unicodeResult.GetProperty("errorMessage").GetString().Contains("8 MiB"), "UTF-8 byte limit was replaced by a character limit");
+        // Send an oversized declared body without streaming it: ordinary HttpClient
+        // can surface a write reset when Kestrel rejects it before body transmission.
+        using (var socket = new TcpClient())
+        {
+            await socket.ConnectAsync(IPAddress.Loopback, token.BaseAddress.Port);
+            string expectedPin = certificate.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            using var tls = new System.Net.Security.SslStream(socket.GetStream(), false, (_, actual, _, _) => actual is not null && actual.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256) == expectedPin);
+            await tls.AuthenticateAsClientAsync("127.0.0.1");
+            string headers = "POST /api/ddi/dhcp/state/ingest HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " + (3 * 8 * 1024 * 1024 + 7) + "\r\nAuthorization: " + token.DefaultRequestHeaders.Authorization + "\r\nConnection: close\r\n\r\n";
+            await tls.WriteAsync(Encoding.ASCII.GetBytes(headers));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var response = new MemoryStream(); byte[] buffer = new byte[4096]; int read;
+            while ((read = await tls.ReadAsync(buffer, timeout.Token)) > 0) { await response.WriteAsync(buffer.AsMemory(0,read)); if(response.Length > 65536) throw new Exception("Unexpected oversized rejection response"); }
+            string error = Encoding.UTF8.GetString(response.ToArray());
+            check(error.Contains("413") || error.Contains("Request body too large"), "Encoded ingestion body cap was not enforced");
+            Console.WriteLine("Encoded cap native TLS response=" + error.Split('\n')[0].Trim() + "; category=RequestBodyTooLarge; no body sent");
+        }
+        check((await Call(token, "/api/ddi/dhcp/state/get")).GetProperty("status").GetString() == "ok", "Normal authenticated request failed after oversized-body rejection");
+        check(Field<DistributedAllocation>(service, "_allocation").Export().SequenceEqual(before), "Boundary/auth rejection tests mutated allocation state");
+        Console.WriteLine("Native ingestion negative checks PASS: missing/invalid/expired/admin/plaintext/proxied credentials; unrelated form; UTF-8 bytes; encoded body cap; allocation state unchanged");
+    }
+    static async Task CheckCapturedIngestion(List<DnsWebService> services, List<HttpClient> clients, Action<bool, string> check)
+    {
+        string folder = Environment.GetEnvironmentVariable("TEQTANIUM_SYNC_CAPTURE_DIRECTORY");
+        if (folder is null) return;
+        var captures = new List<AllocationState>();
+        foreach (string ip in new[] {"10.81.60.226", "10.81.60.227"})
+        {
+            using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, $"current-{ip}-allocation-private.json")));
+            captures.Add(JsonSerializer.Deserialize<AllocationState>(json.RootElement.GetProperty("state").GetRawText(), DistributedAllocation.JsonOptions));
+        }
+        for (int i = 0; i < 2; i++)
+        {
+            var store = Field<DistributedAllocation>(services[i], "_allocation");
+            var manager = Field<ClusterManager>(services[i], "_clusterManager");
+            var nodes = Field<Dictionary<int, ClusterNode>>(manager, "_clusterNodes");
+            int id = 100;
+            foreach (string name in captures.SelectMany(c => c.Replicas.Select(r => r.Node)).Distinct())
+                nodes.Add(++id, new ClusterNode(manager, id, new Uri("https://" + name + ":53443"), [IPAddress.Loopback], ClusterNodeType.Secondary, ClusterNodeState.Fenced));
+            // Local fixture identity is distinct; exact production captures remain peer evidence.
+            store.Merge(JsonSerializer.SerializeToUtf8Bytes(captures[i], DistributedAllocation.JsonOptions), true);
+            string incoming = JsonSerializer.Serialize(captures[1-i], DistributedAllocation.JsonOptions);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var response = await Call(clients[i], "/api/ddi/dhcp/state/ingest", ("state", incoming));
+            clock.Stop();
+            if (Environment.GetEnvironmentVariable("TEQTANIUM_SYNC_BASELINE") == "1")
+            {
+                check(response.GetProperty("status").GetString() == "error" && response.GetProperty("errorMessage").GetString().Contains("4194304"), "Baseline capture did not reproduce native encoded-value parser failure");
+                Console.WriteLine($"Captured receiver={i} baseline native HTTPS ingestion rejected: {response.GetProperty("errorMessage").GetString()}");
+                continue;
+            }
+            check(response.GetProperty("status").GetString() == "ok", "Exact captured publication failed native authenticated ingestion");
+            var applied = store.Snapshot();
+            foreach (var expected in captures.SelectMany(c => c.Replicas).GroupBy(r => (r.Scope,r.Node)).Select(g => g.MaxBy(r => r.Sequence)))
+                check(JsonSerializer.Serialize(applied.Replicas.Single(r => r.Scope == expected.Scope && r.Node == expected.Node), DistributedAllocation.JsonOptions) == JsonSerializer.Serialize(expected, DistributedAllocation.JsonOptions), "Native ingestion lost captured journal/grant/recovery content");
+            Console.WriteLine($"Captured receiver={i} native HTTPS ingestion PASS elapsedMs={clock.ElapsedMilliseconds}; exact latest replica content preserved");
         }
     }
     static async Task CheckUnusedRecoveryTransport(List<DnsWebService> services, List<HttpClient> originals, List<HttpClient> admins, List<HttpClient> tokens, string[] names, Action<bool, string> check)
@@ -457,3 +626,5 @@ static class DistributedTransportChecks
         check(offers.All(value => value is not null) && offers.Select(value => value.Address).Distinct().Count() == offers.Length && offers.All(value => !value.Address.Equals(lease.Address) && !value.Address.Equals(offer.Address) && !value.Address.Equals(declined.Address)), "Actual concurrent offers reuse protected native addresses after migration");
     }
 }
+
+

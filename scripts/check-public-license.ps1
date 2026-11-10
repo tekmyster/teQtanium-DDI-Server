@@ -1,34 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# Public release guard; contains no private implementation.
-param([string]$RepositoryRoot=(Join-Path $PSScriptRoot '..'))
+# Run only against an isolated exact staged publication candidate; never publishes.
+param(
+    [string]$RepositoryRoot=(Join-Path $PSScriptRoot '..'),
+    [Parameter(Mandatory=$true)][ValidateSet('CommunitySource','PublicBinary')][string]$PublicationScope
+)
 $ErrorActionPreference='Stop'
-$root=(Resolve-Path -LiteralPath $RepositoryRoot).Path
-if (Test-Path -LiteralPath (Join-Path $root 'PUBLICATION-HOLD.txt')) {
-    throw 'Public publication is on hold by owner instruction. Private builds may continue; public packaging is blocked.'
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'Publication guard requires PowerShell 7, Git and Python 3.12 or newer; no publication is allowed.' }
+$pythonCommand=$null
+foreach ($name in @('python','python3')) {
+    $candidate=Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($candidate) {
+        & $candidate.Source -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 2)' 2>$null
+        if ($LASTEXITCODE -eq 0) { $pythonCommand=$candidate.Source; break }
+    }
 }
-$inventory=Join-Path $root 'PRIVATE-FILES.txt'
-if (-not (Test-Path -LiteralPath $inventory)) { throw 'Private file inventory is missing.' }
-$privateEntries=@(Get-Content -LiteralPath $inventory | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') })
-if ($privateEntries.Count) { throw 'Private files are inventoried. Use a separate private release pipeline; public packaging is blocked.' }
-$files=@(& git -C $root -c core.quotePath=false ls-files --cached --others --exclude-standard)
-if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect repository files for public packaging.' }
-$existingGpl=@('Tectanium.WindowsService/Program.cs','Tectanium.WindowsService/Tectanium.WindowsService.csproj')
-$blocked=[System.Collections.Generic.List[string]]::new()
-foreach ($relative in $files) {
-    $privatePath=$relative -cmatch '^(Apps/(?:Tectanium|teQtanium)\.[^/]+(?:/|$)|(?:Tectanium|teQtanium)\.[^/]+/|DnsServerCore/(?:.*/)?Tectanium/|docs/tectanium/|docs/enterprise/|packaging/tectanium/)'
-    if ($privatePath -and $relative -cnotin $existingGpl) { $blocked.Add($relative); continue }
-    $path=Join-Path $root $relative
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-    $stream=[IO.File]::OpenRead($path)
-    try {
-        $bytes=[byte[]]::new(2048)
-        $length=$stream.Read($bytes,0,$bytes.Length)
-        $head=[Text.Encoding]::UTF8.GetString($bytes,0,$length)
-        if ($head -match '(?im)^\s*(?://|#|/\*|\*|<!--)?\s*Copyright[^\r\n]*Tekmyster[^\r\n]*All Rights Reserved' -or
-            $head -match '(?im)^\s*(?://|#|/\*|\*|<!--)?\s*Proprietary and Confidential') {
-            $blocked.Add($relative)
-        }
-    } finally { $stream.Dispose() }
-}
-if ($blocked.Count) { throw ('Private or unclassified source cannot enter public packages: ' + (($blocked | Sort-Object -Unique) -join ', ')) }
-Write-Output 'Public license guard passed.'
+if (!$pythonCommand) { throw 'Publication guard requires Python 3.12 or newer on PATH (python or python3), plus Git. Install the supported runtime before checking a candidate; no publication is allowed.' }
+& $pythonCommand (Join-Path $PSScriptRoot 'check_public_source.py') --root $RepositoryRoot --scope $PublicationScope
+if ($LASTEXITCODE -ne 0) { throw 'Publication scope/provenance guard rejected this candidate.' }

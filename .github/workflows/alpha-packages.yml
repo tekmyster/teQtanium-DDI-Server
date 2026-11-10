@@ -46,7 +46,8 @@ jobs:
           ./scripts/build-ddi.ps1
           ./scripts/test-ddi.ps1
   package:
-    if: '!github.event.repository.private'
+    # Community source authorization does not authorize public binary CI assets.
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +79,7 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Build pinned dependencies and tests
         run: |
-          ./scripts/check-public-license.ps1
+          ./scripts/check-public-license.ps1 -PublicationScope PublicBinary
           ./scripts/build-ddi.ps1
           dotnet build tests/Ipam.Tests/Ipam.Tests.csproj -c Release --nologo -v quiet
           if ($LASTEXITCODE -ne 0) { throw 'Test build failed.' }
@@ -153,6 +154,7 @@ jobs:
           path: app/artifacts/dist/*
           retention-days: 7
   docker:
+    if: ${{ false }}
     needs: package
     runs-on: ubuntu-24.04
     steps:

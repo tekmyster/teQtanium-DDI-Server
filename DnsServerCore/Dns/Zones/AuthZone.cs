@@ -1,4 +1,4 @@
-﻿/*
+/*
 Technitium DNS Server
 Copyright (C) 2026  Shreyas Zare (shreyas@technitium.com)
 
@@ -125,9 +125,36 @@ namespace DnsServerCore.Dns.Zones
         #endregion
 
         #region versioning
+        // Modified by Tekmyster Industries, LLC — remains GPL-3.0.
+        // Conditional RRset mutation never substitutes another writer's current value.
+        readonly object _provisioningRecordSync = new object();
+        internal bool TryProvisionAddress(DnsResourceRecord record, string marker, bool remove)
+        {
+            lock (_provisioningRecordSync)
+            {
+            if (record.Type != DnsResourceRecordType.A) throw new InvalidOperationException("Only IPv4 address records are supported.");
+            if (_entries.TryGetValue(record.Type, out var current))
+            {
+                if (current.Count != 1) return false;
+                var existing = current[0];
+                var info = existing.GetAuthGenericRecordInfo();
+                lock (info)
+                {
+                    if (existing.RDATA.Equals(record.RDATA) && existing.OriginalTtlValue == record.OriginalTtlValue && !info.Disabled && info.ExpiryTtl == 0 && info.Comments == marker)
+                        return !remove || ((ICollection<KeyValuePair<DnsResourceRecordType, IReadOnlyList<DnsResourceRecord>>>)_entries).Remove(new(record.Type, current));
+                    return false;
+                }
+            }
+            if (remove) return true;
+            if (_entries.ContainsKey(DnsResourceRecordType.CNAME)) return false;
+            return _entries.TryAdd(record.Type, new DnsResourceRecord[] { record });
+            }
+        }
 
         internal bool TrySetRecords(DnsResourceRecordType type, IReadOnlyList<DnsResourceRecord> records, out IReadOnlyList<DnsResourceRecord> deletedRecords)
         {
+            lock (_provisioningRecordSync)
+            {
             switch (type)
             {
                 case DnsResourceRecordType.CNAME:
@@ -156,6 +183,7 @@ namespace DnsServerCore.Dns.Zones
             {
                 deletedRecords = Array.Empty<DnsResourceRecord>();
                 return _entries.TryAdd(type, records);
+            }
             }
         }
 
@@ -304,6 +332,8 @@ namespace DnsServerCore.Dns.Zones
 
         internal void AddRecord(DnsResourceRecord record, out IReadOnlyList<DnsResourceRecord> addedRecords, out IReadOnlyList<DnsResourceRecord> deletedRecords)
         {
+            lock (_provisioningRecordSync)
+            {
             switch (record.Type)
             {
                 case DnsResourceRecordType.CNAME:
@@ -386,6 +416,7 @@ namespace DnsServerCore.Dns.Zones
 
                 return updatedRecords;
             });
+            }
         }
 
         #endregion

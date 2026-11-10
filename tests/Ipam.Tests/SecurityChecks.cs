@@ -21,10 +21,10 @@ static class SecurityChecks
             {
                 Content = new StringContent(Empty ? "{\"response\":{\"Attribute\":[]}}" : """
                     {"response":{"Attribute":[
-                      {"uuid":"domain-1","type":"domain","value":"misp.example","event_id":"42","to_ids":true,"timestamp":"1720000000","Tag":[{"name":"tlp:green"}]},
-                      {"uuid":"ip-1","type":"ip-dst","value":"203.0.113.4","to_ids":false},
-                      {"uuid":"url-1","type":"url","value":"https://legit.example/specific-bad-path","to_ids":true},
-                      {"uuid":"deleted-1","type":"domain","value":"deleted.example","deleted":"1","to_ids":true}
+                      {"uuid":"00000000-0000-4000-8000-000000000001","type":"domain","value":"misp.example","event_id":"42","to_ids":true,"timestamp":"1720000000","Tag":[{"name":"tlp:green"}]},
+                      {"uuid":"00000000-0000-4000-8000-000000000002","type":"ip-dst","value":"203.0.113.4","to_ids":false},
+                      {"uuid":"00000000-0000-4000-8000-000000000003","type":"url","value":"https://legit.example/specific-bad-path","to_ids":true},
+                      {"uuid":"00000000-0000-4000-8000-000000000004","type":"domain","value":"deleted.example","deleted":"1","to_ids":true}
                     ]}}
                     """, Encoding.UTF8, "application/json")
             };
